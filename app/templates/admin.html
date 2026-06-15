@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관리자 패널 — CMS Lab 대시보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+<style>
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5f6fa;font-size:14px}
+.topbar{background:#1a56a0;color:#fff;padding:10px 24px;display:flex;align-items:center;justify-content:space-between}
+.topbar h1{font-size:16px;font-weight:700;margin:0}
+.topbar a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px}
+.topbar a:hover{color:#fff}
+.container-main{max-width:1100px;margin:0 auto;padding:24px 16px}
+.kpi-bar{background:#fff;border-radius:10px;padding:14px 20px;margin-bottom:20px;
+         box-shadow:0 1px 4px rgba(0,0,0,.06);display:flex;gap:32px;align-items:center;flex-wrap:wrap}
+.kpi-item label{font-size:11px;color:#6c757d;display:block;margin-bottom:2px}
+.kpi-item span{font-size:16px;font-weight:700;color:#1a56a0}
+.card{border:none;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.nav-tabs .nav-link{font-size:13px;color:#374151}
+.nav-tabs .nav-link.active{font-weight:600;color:#1a56a0}
+.table th{font-size:12px;color:#6c757d;font-weight:600;background:#f8f9fa}
+.table td{font-size:13px;vertical-align:middle}
+.badge-admin{background:#1a56a0}
+.badge-viewer{background:#6c757d}
+.msg-bar{padding:10px 16px;background:#d1fae5;border-radius:8px;color:#065f46;
+         font-size:13px;margin-bottom:16px;display:none}
+.msg-bar.show{display:block}
+/* 수동 입력 폼 */
+.import-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.import-grid .form-label{font-size:12px;font-weight:600;color:#374151;margin-bottom:4px}
+.fw-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.fw-grid .form-label{font-size:11px;color:#6c757d}
+</style>
+</head>
+<body>
+
+<!-- 상단바 -->
+<div class="topbar">
+  <h1>⚙️ 관리자 패널</h1>
+  <div class="d-flex gap-3 align-items-center">
+    <a href="/dashboard">대시보드 보기</a>
+    <a href="/compare">비교 보기</a>
+    <a href="/logout">로그아웃 ({{ user.name or user.email }})</a>
+  </div>
+</div>
+
+<div class="container-main">
+
+  <!-- 메시지 바 -->
+  {% if msg %}
+  <div class="msg-bar show">{{ msg }}</div>
+  {% endif %}
+
+  <!-- KPI -->
+  <div class="kpi-bar">
+    <div class="kpi-item">
+      <label>현재 스냅샷</label>
+      <span>{{ active_info.week_label if active_info else '없음' }}</span>
+    </div>
+    <div class="kpi-item">
+      <label>기준일자</label>
+      <span>{{ active_info.base_date if active_info else '—' }}</span>
+    </div>
+    <div class="kpi-item">
+      <label>마지막 업로드</label>
+      <span>{{ active_info.uploaded_at if active_info else '—' }}</span>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <ul class="nav nav-tabs mb-3" id="adminTab">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-upload">📂 Excel 업로드</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-import">✏️ 직접 입력</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-users">👥 사용자 관리</button></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ── 탭1: Excel 업로드 ─────────────────────────────────── -->
+    <div class="tab-pane fade show active" id="tab-upload">
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-3">Excel 파일 업로드</h6>
+        <form method="post" action="/admin/upload" enctype="multipart/form-data">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label">Excel 파일 (.xlsx)</label>
+              <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">스냅샷 레이블 (선택)</label>
+              <input type="text" name="week_label" class="form-control form-control-sm"
+                     placeholder="예: 6월 2주차">
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-primary btn-sm w-100">업로드 &amp; 반영</button>
+            </div>
+          </div>
+          <div class="text-muted mt-2" style="font-size:12px">
+            업로드하면 기존 활성 스냅샷이 비활성화되고 새 데이터로 대시보드가 즉시 갱신됩니다.
+          </div>
+        </form>
+      </div>
+
+      <!-- 업로드 이력 -->
+      <div class="card p-4">
+        <h6 class="fw-bold mb-3">업로드 이력 (최근 10건)</h6>
+        <table class="table table-sm table-hover">
+          <thead><tr><th>#</th><th>레이블</th><th>기준일자</th><th>업로드 시각</th><th>상태</th></tr></thead>
+          <tbody>
+          {% for s in snapshots %}
+          <tr>
+            <td>{{ s.id }}</td>
+            <td>{{ s.week_label }}</td>
+            <td>{{ s.base_date }}</td>
+            <td>{{ s.uploaded_at.strftime('%Y-%m-%d %H:%M') if s.uploaded_at else '—' }}</td>
+            <td>
+              {% if s.is_active %}
+              <span class="badge bg-success">활성</span>
+              {% else %}
+              <span class="badge bg-secondary">비활성</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted">업로드 이력이 없습니다</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── 탭2: 직접 입력 ─────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-import">
+      <div class="card p-4">
+        <h6 class="fw-bold mb-1">매출 데이터 직접 입력</h6>
+        <p class="text-muted mb-3" style="font-size:12px">
+          선택 조건에 해당하는 기존 레코드를 불러와 수정하거나 새로 입력할 수 있습니다.<br>
+          입력 후 [Import] 를 누르면 현재 활성 스냅샷에 즉시 반영됩니다.
+        </p>
+
+        <!-- 조건 선택 -->
+        <div class="import-grid mb-3">
+          <div>
+            <label class="form-label">팀</label>
+            <select id="imp-team" class="form-select form-select-sm" onchange="loadChannels()">
+              <option value="">— 선택 —</option>
+              {% for t in teams %}
+              <option value="{{ t }}">{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">채널</label>
+            <input id="imp-channel" class="form-control form-control-sm" placeholder="직접 입력">
+          </div>
+          <div>
+            <label class="form-label">브랜드</label>
+            <select id="imp-brand" class="form-select form-select-sm">
+              <option value="CFC">CFC</option>
+              <option value="CEX">CEX</option>
+              <option value="DMB">DMB</option>
+              <option value="SUS">SUS</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">월</label>
+            <select id="imp-month" class="form-select form-select-sm">
+              {% for m in range(1, 13) %}
+              <option value="{{ m }}">{{ m }}월</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="d-flex align-items-end">
+            <button class="btn btn-outline-secondary btn-sm w-100" onclick="loadRecord()">불러오기</button>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- 값 입력 -->
+        <div class="import-grid mb-3">
+          <div>
+            <label class="form-label">Y2024 실적</label>
+            <input id="imp-y2024" type="number" step="0.001" class="form-control form-control-sm" placeholder="0.000">
+          </div>
+          <div>
+            <label class="form-label">Y2025 예산</label>
+            <input id="imp-y2025b" type="number" step="0.001" class="form-control form-control-sm" placeholder="0.000">
+          </div>
+          <div>
+            <label class="form-label">Y2025 실적</label>
+            <input id="imp-y2025" type="number" step="0.001" class="form-control form-control-sm" placeholder="0.000">
+          </div>
+          <div>
+            <label class="form-label">2026 계획</label>
+            <input id="imp-plan" type="number" step="0.001" class="form-control form-control-sm" placeholder="0.000">
+          </div>
+          <div>
+            <label class="form-label">2026 실적</label>
+            <input id="imp-actual" type="number" step="0.001" class="form-control form-control-sm" placeholder="0.000">
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" style="font-size:12px;color:#6c757d">주차별 스냅샷 (백만원, 입력 없으면 null)</label>
+          <div class="fw-grid">
+            <div><label class="form-label">1주차</label><input id="imp-fw1" type="number" step="0.001" class="form-control form-control-sm" placeholder="—"></div>
+            <div><label class="form-label">2주차</label><input id="imp-fw2" type="number" step="0.001" class="form-control form-control-sm" placeholder="—"></div>
+            <div><label class="form-label">3주차</label><input id="imp-fw3" type="number" step="0.001" class="form-control form-control-sm" placeholder="—"></div>
+            <div><label class="form-label">4주차</label><input id="imp-fw4" type="number" step="0.001" class="form-control form-control-sm" placeholder="—"></div>
+            <div><label class="form-label">5주차</label><input id="imp-fw5" type="number" step="0.001" class="form-control form-control-sm" placeholder="—"></div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 align-items-center">
+          <button class="btn btn-primary btn-sm" onclick="importRecord()">Import (저장)</button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="clearImportForm()">초기화</button>
+          <span id="imp-msg" class="text-success fw-bold" style="font-size:13px;display:none"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 탭3: 사용자 관리 ────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-users">
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-3">새 사용자 추가</h6>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label">이름</label>
+            <input id="nu-name" type="text" class="form-control form-control-sm" placeholder="홍길동">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">이메일</label>
+            <input id="nu-email" type="email" class="form-control form-control-sm" placeholder="user@cms-lab.co.kr">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">비밀번호</label>
+            <input id="nu-pw" type="password" class="form-control form-control-sm" placeholder="초기 비밀번호">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">권한</label>
+            <select id="nu-role" class="form-select form-select-sm">
+              <option value="viewer">viewer (일반)</option>
+              <option value="admin">admin (관리자)</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-primary btn-sm w-100" onclick="createUser()">추가</button>
+          </div>
+        </div>
+
+        <!-- 팀 권한 선택 -->
+        <div class="mt-3">
+          <label class="form-label" style="font-size:12px">열람 가능한 팀 (미선택 = 전체 열람)</label>
+          <div class="d-flex flex-wrap gap-2" id="nu-teams">
+            {% for t in teams %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input nu-team-cb" type="checkbox" value="{{ t }}" id="nut-{{ loop.index }}">
+              <label class="form-check-label" for="nut-{{ loop.index }}" style="font-size:12px">{{ t }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <span id="nu-msg" class="text-success fw-bold mt-2 d-block" style="font-size:13px;display:none"></span>
+      </div>
+
+      <!-- 사용자 목록 -->
+      <div class="card p-4">
+        <h6 class="fw-bold mb-3">사용자 목록</h6>
+        <table class="table table-sm table-hover" id="user-table">
+          <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>권한</th><th>열람 팀</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody>
+          {% for u in users %}
+          <tr id="urow-{{ u.id }}">
+            <td>{{ u.id }}</td>
+            <td>{{ u.name or '—' }}</td>
+            <td>{{ u.email }}</td>
+            <td><span class="badge {{ 'badge-admin bg-primary' if u.role == 'admin' else 'badge-viewer bg-secondary' }}">{{ u.role }}</span></td>
+            <td style="font-size:12px">{{ ', '.join(u.allowed_teams) if u.allowed_teams else '전체' }}</td>
+            <td>
+              {% if u.is_active %}
+              <span class="badge bg-success">활성</span>
+              {% else %}
+              <span class="badge bg-secondary">비활성</span>
+              {% endif %}
+            </td>
+            <td>
+              <button class="btn btn-outline-warning btn-sm py-0 px-2"
+                onclick="toggleActive({{ u.id }}, {{ 'false' if u.is_active else 'true' }})">
+                {{ '비활성화' if u.is_active else '활성화' }}
+              </button>
+              {% if u.id != user.id %}
+              <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="deleteUser({{ u.id }})">삭제</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- tab-content -->
+</div><!-- container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── 직접 입력 ────────────────────────────────────────────────────────
+async function loadRecord() {
+  const team = document.getElementById('imp-team').value;
+  const channel = document.getElementById('imp-channel').value.trim();
+  const brand = document.getElementById('imp-brand').value;
+  const month = document.getElementById('imp-month').value;
+  if (!team || !channel) { alert('팀과 채널을 입력하세요.'); return; }
+
+  const params = new URLSearchParams({ team, channel, brand, month });
+  const res = await fetch(`/admin/record?${params}`);
+  if (!res.ok) { alert('조회 오류'); return; }
+  const d = await res.json();
+
+  ['y2024','y2025b','y2025','plan','actual','fw1','fw2','fw3','fw4','fw5'].forEach(f => {
+    const el = document.getElementById(`imp-${f}`);
+    if (el) el.value = d[f] !== null && d[f] !== undefined ? d[f] : '';
+  });
+}
+
+async function importRecord() {
+  const team = document.getElementById('imp-team').value;
+  const channel = document.getElementById('imp-channel').value.trim();
+  const brand = document.getElementById('imp-brand').value;
+  const month = parseInt(document.getElementById('imp-month').value);
+  if (!team || !channel) { alert('팀과 채널을 입력하세요.'); return; }
+
+  const getVal = id => {
+    const v = document.getElementById(id).value;
+    return v === '' ? null : parseFloat(v);
+  };
+
+  const body = {
+    team, channel, brand, month,
+    y2024: getVal('imp-y2024'), y2025b: getVal('imp-y2025b'), y2025: getVal('imp-y2025'),
+    plan: getVal('imp-plan'), actual: getVal('imp-actual'),
+    fw1: getVal('imp-fw1'), fw2: getVal('imp-fw2'), fw3: getVal('imp-fw3'),
+    fw4: getVal('imp-fw4'), fw5: getVal('imp-fw5'),
+  };
+
+  const res = await fetch('/admin/import-record', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  const msg = document.getElementById('imp-msg');
+  if (data.ok) {
+    msg.textContent = '✅ 저장 완료!';
+    msg.style.display = 'inline';
+    setTimeout(() => msg.style.display = 'none', 3000);
+  } else {
+    alert('저장 실패: ' + JSON.stringify(data));
+  }
+}
+
+function clearImportForm() {
+  ['y2024','y2025b','y2025','plan','actual','fw1','fw2','fw3','fw4','fw5'].forEach(f => {
+    const el = document.getElementById(`imp-${f}`);
+    if (el) el.value = '';
+  });
+}
+
+// ── 사용자 관리 ───────────────────────────────────────────────────────
+async function createUser() {
+  const teams = [...document.querySelectorAll('.nu-team-cb:checked')].map(c => c.value);
+  const body = {
+    action: 'create',
+    name: document.getElementById('nu-name').value.trim(),
+    email: document.getElementById('nu-email').value.trim(),
+    password: document.getElementById('nu-pw').value,
+    role: document.getElementById('nu-role').value,
+    allowed_teams: teams.length ? teams : null,
+  };
+  if (!body.email || !body.password) { alert('이메일과 비밀번호를 입력하세요.'); return; }
+
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('nu-msg').textContent = '✅ 사용자가 추가되었습니다. 페이지를 새로고침하세요.';
+    document.getElementById('nu-msg').style.display = 'block';
+  } else {
+    alert('오류: ' + (data.detail || JSON.stringify(data)));
+  }
+}
+
+async function toggleActive(userId, newState) {
+  if (!confirm(`사용자 ${userId}를 ${newState ? '활성화' : '비활성화'} 하시겠습니까?`)) return;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: userId, is_active: newState }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+async function deleteUser(userId) {
+  if (!confirm(`사용자 ${userId}를 삭제하시겠습니까?`)) return;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'delete', id: userId }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+</script>
+</body>
+</html>

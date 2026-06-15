@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sales_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  web:
+    build:
+      context: ..
+      dockerfile: sales_dashboard_web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/sales_db
+    ports:
+      - "8000:8000"
+    volumes:
+      # 자동 업데이트용 공유 폴더 (선택)
+      - ${DATA_WATCH_DIR:-/tmp/excel}:/data/excel
+
+volumes:
+  pgdata:

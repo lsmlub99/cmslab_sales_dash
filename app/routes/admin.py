@@ -1,0 +1,280 @@
+import os, tempfile
+from typing import Optional
+from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+
+from ..database import get_db
+from ..auth import require_admin, hash_password
+from ..models import User, Snapshot, SalesRecord
+from ..data.parser import (
+    extract_records_from_excel,
+    save_snapshot,
+    get_active_snapshot_info,
+)
+
+router = APIRouter(prefix="/admin")
+_tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+templates = Jinja2Templates(directory=_tpl_dir)
+
+TARGET_TEAMS = [
+    "RBD1팀", "RBD2팀", "동북아MC팀", "Global사업팀",
+    "GEC팀", "일본사업팀", "중국사업팀", "메디컬팀",
+]
+
+
+# ─── 메인 페이지 ──────────────────────────────────────────────────────────────
+
+@router.get("", response_class=HTMLResponse)
+async def admin_page(
+    request: Request,
+    msg: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    snapshots = (
+        db.query(Snapshot)
+        .order_by(Snapshot.uploaded_at.desc())
+        .limit(10)
+        .all()
+    )
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    info = get_active_snapshot_info(db)
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "user": current_user,
+        "snapshots": snapshots,
+        "users": users,
+        "active_info": info,
+        "teams": TARGET_TEAMS,
+        "msg": msg,
+    })
+
+
+# ─── Excel 업로드 ─────────────────────────────────────────────────────────────
+
+@router.post("/upload")
+async def upload_excel(
+    file: UploadFile = File(...),
+    week_label: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Excel 파일(.xlsx)만 업로드 가능합니다.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        records, base_date = extract_records_from_excel(tmp_path)
+        label = week_label.strip() or os.path.splitext(file.filename)[0]
+        snapshot = save_snapshot(db, records, label, base_date, current_user.id)
+        return RedirectResponse(
+            f"/admin?msg=✅ 업로드 완료: {len(records)}건 저장 ({label})",
+            status_code=302,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"파일 처리 오류: {e}")
+    finally:
+        os.unlink(tmp_path)
+
+
+# ─── 수동 입력 (Import Form) ─────────────────────────────────────────────────
+
+@router.get("/record")
+async def get_record(
+    team: str,
+    channel: str,
+    brand: str,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """입력 칸 자동 채우기용 기존 레코드 조회."""
+    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snapshot:
+        return {}
+    r = db.query(SalesRecord).filter(
+        SalesRecord.snapshot_id == snapshot.id,
+        SalesRecord.team == team,
+        SalesRecord.channel == channel,
+        SalesRecord.brand == brand,
+        SalesRecord.month == month,
+    ).first()
+    if not r:
+        return {}
+    result = {
+        "y2024": float(r.y2024 or 0),
+        "y2025b": float(r.y2025b or 0),
+        "y2025": float(r.y2025 or 0),
+        "plan": float(r.plan or 0),
+        "actual": float(r.actual or 0),
+    }
+    for fw in ["fw1", "fw2", "fw3", "fw4", "fw5"]:
+        v = getattr(r, fw)
+        result[fw] = float(v) if v is not None else None
+    return result
+
+
+@router.post("/import-record")
+async def import_record(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """단건 레코드 upsert (active 스냅샷 기준)."""
+    body = await request.json()
+    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snapshot:
+        raise HTTPException(400, "활성 스냅샷이 없습니다. 먼저 Excel을 업로드하세요.")
+
+    r = db.query(SalesRecord).filter(
+        SalesRecord.snapshot_id == snapshot.id,
+        SalesRecord.team == body["team"],
+        SalesRecord.channel == body["channel"],
+        SalesRecord.brand == body.get("brand", "기타"),
+        SalesRecord.month == int(body["month"]),
+    ).first()
+
+    _fields = ["y2024", "y2025b", "y2025", "plan", "actual", "fw1", "fw2", "fw3", "fw4", "fw5"]
+    def _v(val):
+        return float(val) if val not in (None, "", "null") else None
+
+    if r:
+        for f in _fields:
+            if f in body:
+                setattr(r, f, _v(body[f]))
+    else:
+        r = SalesRecord(
+            snapshot_id=snapshot.id,
+            team=body["team"],
+            channel=body["channel"],
+            brand=body.get("brand", "기타"),
+            code=body.get("code", ""),
+            month=int(body["month"]),
+            **{f: _v(body.get(f)) for f in _fields},
+        )
+        db.add(r)
+
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/import-bulk")
+async def import_bulk(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """JSON 배열 다건 일괄 import."""
+    items = await request.json()
+    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snapshot:
+        raise HTTPException(400, "활성 스냅샷이 없습니다.")
+
+    _fields = ["y2024", "y2025b", "y2025", "plan", "actual", "fw1", "fw2", "fw3", "fw4", "fw5"]
+    def _v(val):
+        return float(val) if val not in (None, "", "null") else None
+
+    updated = inserted = 0
+    for item in items:
+        r = db.query(SalesRecord).filter(
+            SalesRecord.snapshot_id == snapshot.id,
+            SalesRecord.team == item["team"],
+            SalesRecord.channel == item["channel"],
+            SalesRecord.brand == item.get("brand", "기타"),
+            SalesRecord.month == int(item["month"]),
+        ).first()
+        if r:
+            for f in _fields:
+                if f in item:
+                    setattr(r, f, _v(item[f]))
+            updated += 1
+        else:
+            r = SalesRecord(
+                snapshot_id=snapshot.id,
+                team=item["team"],
+                channel=item["channel"],
+                brand=item.get("brand", "기타"),
+                code=item.get("code", ""),
+                month=int(item["month"]),
+                **{f: _v(item.get(f)) for f in _fields},
+            )
+            db.add(r)
+            inserted += 1
+
+    db.commit()
+    return {"ok": True, "updated": updated, "inserted": inserted}
+
+
+# ─── 사용자 관리 ──────────────────────────────────────────────────────────────
+
+@router.post("/users")
+async def manage_users(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    body = await request.json()
+    action = body.get("action", "create")
+
+    if action == "create":
+        if db.query(User).filter(User.email == body["email"]).first():
+            raise HTTPException(400, "이미 존재하는 이메일입니다.")
+        teams = body.get("allowed_teams") or None
+        user = User(
+            email=body["email"],
+            hashed_password=hash_password(body["password"]),
+            name=body.get("name", ""),
+            role=body.get("role", "viewer"),
+            allowed_teams=teams,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        return {"ok": True, "id": user.id}
+
+    elif action == "update":
+        user = db.query(User).filter(User.id == body["id"]).first()
+        if not user:
+            raise HTTPException(404, "사용자를 찾을 수 없습니다.")
+        for field in ("name", "role", "is_active"):
+            if field in body:
+                setattr(user, field, body[field])
+        if "allowed_teams" in body:
+            user.allowed_teams = body["allowed_teams"] or None
+        if body.get("password"):
+            user.hashed_password = hash_password(body["password"])
+        db.commit()
+        return {"ok": True}
+
+    elif action == "delete":
+        user = db.query(User).filter(User.id == body["id"]).first()
+        if not user:
+            raise HTTPException(404, "사용자를 찾을 수 없습니다.")
+        if user.id == current_user.id:
+            raise HTTPException(400, "자기 자신은 삭제할 수 없습니다.")
+        db.delete(user)
+        db.commit()
+        return {"ok": True}
+
+    raise HTTPException(400, f"알 수 없는 action: {action}")
+
+
+# ─── 스케줄러 수동 트리거 ────────────────────────────────────────────────────
+
+@router.post("/trigger-update")
+async def trigger_update(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    from ..scheduler import run_scheduled_update
+    try:
+        result = run_scheduled_update(db)
+        return {"ok": True, "message": result}
+    except Exception as e:
+        raise HTTPException(500, str(e))

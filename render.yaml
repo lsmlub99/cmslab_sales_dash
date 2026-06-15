@@ -1,0 +1,27 @@
+# Render 배포 설정 (https://render.com)
+# GitHub 연결 후 이 파일 기준으로 자동 배포
+#
+# 필요한 환경변수 (Render 대시보드에서 설정):
+#   DATABASE_URL  → Render PostgreSQL 서비스에서 자동 제공
+#   SECRET_KEY    → 랜덤 문자열 직접 입력
+#   FIRST_ADMIN_EMAIL, FIRST_ADMIN_PASSWORD
+#   DASHBOARD_SRC_PATH → /opt/render/project/src/sales_dash_cmslab
+
+services:
+  - type: web
+    name: cms-lab-dashboard
+    runtime: python
+    rootDir: sales_dashboard_web
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DASHBOARD_SRC_PATH
+        value: /opt/render/project/src/sales_dash_cmslab
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+    autoDeploy: true
+
+databases:
+  - name: cms-lab-db
+    databaseName: sales_db
+    plan: free
