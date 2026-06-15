@@ -23,6 +23,40 @@ _NO_DATA_HTML = """
 </body></html>
 """
 
+_NAV_STYLE = """
+<style>
+#__cms-topnav{position:fixed;top:0;left:0;right:0;z-index:99999;
+  background:#1a56a0;padding:6px 20px;display:flex;align-items:center;
+  justify-content:space-between;font-family:'Malgun Gothic',sans-serif;
+  font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+#__cms-topnav .nav-title{color:#fff;font-weight:700;letter-spacing:-.3px}
+#__cms-topnav .nav-right{display:flex;gap:14px;align-items:center}
+#__cms-topnav .nav-user{color:rgba(255,255,255,.75)}
+#__cms-topnav a{color:rgba(255,255,255,.85);text-decoration:none}
+#__cms-topnav a:hover{color:#fff}
+#__cms-topnav .nav-logout{background:rgba(255,255,255,.15);padding:3px 12px;
+  border-radius:5px;color:#fff !important}
+#__cms-topnav .nav-logout:hover{background:rgba(255,255,255,.28)}
+body{padding-top:36px !important}
+</style>
+"""
+
+
+def _inject_nav(html: str, user: User) -> str:
+    admin_link = '<a href="/admin">관리자</a>' if user.role == "admin" else ""
+    nav = f"""{_NAV_STYLE}
+<div id="__cms-topnav">
+  <span class="nav-title">CMS Lab 매출 대시보드</span>
+  <div class="nav-right">
+    <span class="nav-user">{user.name or user.email}</span>
+    {admin_link}
+    <a href="/logout" class="nav-logout">로그아웃</a>
+  </div>
+</div>"""
+    if "<body" in html:
+        return html.replace("<body", nav + "<body", 1)
+    return nav + html
+
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
@@ -38,7 +72,7 @@ async def dashboard(
 
     info = get_active_snapshot_info(db)
     base_date = info["base_date"] if info else ""
-    return HTMLResponse(make_dashboard_html(records, base_date))
+    return HTMLResponse(_inject_nav(make_dashboard_html(records, base_date), current_user))
 
 
 @router.get("/compare", response_class=HTMLResponse)
@@ -55,4 +89,4 @@ async def compare(
 
     info = get_active_snapshot_info(db)
     base_date = info["base_date"] if info else ""
-    return HTMLResponse(make_compare_html(records, base_date))
+    return HTMLResponse(_inject_nav(make_compare_html(records, base_date), current_user))

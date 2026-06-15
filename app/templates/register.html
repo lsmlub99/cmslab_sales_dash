@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>회원가입 — CMS Lab 매출 대시보드</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0f2f5;
+     display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.10);
+      padding:40px 36px;width:100%;max-width:420px}
+.logo{text-align:center;margin-bottom:28px}
+.logo h1{font-size:20px;color:#1a56a0;font-weight:700;letter-spacing:-.5px}
+.logo p{font-size:12px;color:#6c757d;margin-top:4px}
+label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+input{width:100%;border:1px solid #d1d5db;border-radius:7px;padding:10px 12px;
+      font-size:14px;outline:none;transition:border .2s}
+input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
+.field{margin-bottom:16px}
+.btn{width:100%;background:#1a56a0;color:#fff;border:none;border-radius:7px;
+     padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s;margin-top:4px}
+.btn:hover{background:#154080}
+.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;
+       border-radius:7px;padding:10px 14px;font-size:13px;margin-bottom:16px;text-align:center}
+.success{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;
+         border-radius:7px;padding:16px;font-size:14px;margin-bottom:16px;text-align:center}
+.success strong{display:block;font-size:16px;margin-bottom:6px}
+.hint{font-size:11px;color:#9ca3af;margin-top:4px}
+.link-row{text-align:center;margin-top:18px;font-size:13px;color:#6c757d}
+.link-row a{color:#1a56a0;text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <h1>CMS Lab 매출 대시보드</h1>
+    <p>회원가입</p>
+  </div>
+
+  {% if success %}
+  <div class="success">
+    <strong>가입 신청 완료!</strong>
+    관리자 승인 후 로그인이 가능합니다.<br>
+    승인은 담당자에게 문의해주세요.
+  </div>
+  <a href="/login" class="btn" style="display:block;text-align:center;text-decoration:none;line-height:1.8">로그인 페이지로</a>
+  {% else %}
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/register">
+    <div class="field">
+      <label for="name">이름</label>
+      <input type="text" id="name" name="name" placeholder="홍길동" required autofocus>
+    </div>
+    <div class="field">
+      <label for="email">이메일</label>
+      <input type="email" id="email" name="email" placeholder="example@{{ domain }}" required>
+      <p class="hint">@{{ domain }} 도메인만 가입 가능합니다</p>
+    </div>
+    <div class="field">
+      <label for="password">비밀번호</label>
+      <input type="password" id="password" name="password" placeholder="8자 이상" required minlength="8">
+    </div>
+    <div class="field">
+      <label for="password2">비밀번호 확인</label>
+      <input type="password" id="password2" name="password2" placeholder="비밀번호 재입력" required>
+    </div>
+    <button class="btn" type="submit">가입 신청</button>
+  </form>
+  <div class="link-row">
+    이미 계정이 있으신가요? <a href="/login">로그인</a>
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

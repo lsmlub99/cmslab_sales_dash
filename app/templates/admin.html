@@ -224,6 +224,33 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
 
     <!-- ── 탭3: 사용자 관리 ────────────────────────────────────── -->
     <div class="tab-pane fade" id="tab-users">
+
+      <!-- 승인 대기 -->
+      {% set pending = users | selectattr('is_active', 'equalto', false) | list %}
+      {% if pending %}
+      <div class="card p-4 mb-4 border-warning">
+        <h6 class="fw-bold mb-3 text-warning">⏳ 승인 대기 ({{ pending | length }}명)</h6>
+        <table class="table table-sm table-hover">
+          <thead><tr><th>이름</th><th>이메일</th><th>가입일시</th><th>처리</th></tr></thead>
+          <tbody>
+          {% for u in pending %}
+          <tr>
+            <td>{{ u.name or '—' }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
+            <td>
+              <button class="btn btn-success btn-sm py-0 px-3 me-1"
+                onclick="approveUser({{ u.id }})">승인</button>
+              <button class="btn btn-outline-danger btn-sm py-0 px-2"
+                onclick="deleteUser({{ u.id }})">거절</button>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
       <div class="card p-4 mb-4">
         <h6 class="fw-bold mb-3">새 사용자 추가</h6>
         <div class="row g-3 align-items-end">
@@ -394,6 +421,16 @@ async function createUser() {
   } else {
     alert('오류: ' + (data.detail || JSON.stringify(data)));
   }
+}
+
+async function approveUser(userId) {
+  if (!confirm('이 사용자를 승인하시겠습니까?')) return;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: userId, is_active: true }),
+  });
+  if ((await res.json()).ok) location.reload();
 }
 
 async function toggleActive(userId, newState) {
