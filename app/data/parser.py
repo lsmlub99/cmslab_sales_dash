@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 DASHBOARD_SRC_PATH = os.getenv(
     "DASHBOARD_SRC_PATH",
     os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "sales_dash_cmslab")
+        os.path.join(os.path.dirname(__file__), "scripts")
     ),
 )
 
