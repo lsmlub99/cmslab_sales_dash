@@ -21,8 +21,6 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
 .email-status{font-size:12px;margin-top:5px;padding:5px 8px;border-radius:5px;display:none}
 .email-status.ok{display:block;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0}
 .email-status.err{display:block;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca}
-.email-status.warn{display:block;color:#92400e;background:#fffbeb;border:1px solid #fde68a}
-.verify-note{font-size:11px;color:#6b7280;margin-top:4px;display:flex;align-items:center;gap:4px}
 .btn{width:100%;background:#1a56a0;color:#fff;border:none;border-radius:7px;
      padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s;margin-top:4px}
 .btn:hover{background:#154080}
@@ -45,18 +43,10 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
 
   {% if success %}
   <div class="success">
-    {% if resent %}
-    <strong>인증 메일 재발송 완료!</strong>
-    이메일 메일함을 확인해 인증 링크를 클릭해주세요.
-    {% else %}
     <strong>가입 신청 완료!</strong>
-    입력하신 이메일로 인증 링크를 발송했습니다.<br>
-    메일함을 확인하고 인증을 완료해주세요.<br>
+    관리자 승인 후 로그인이 가능합니다.<br>
     {% if admin_contact %}
-    인증 후 관리자 승인이 필요합니다. 문의: <strong>{{ admin_contact }}</strong>
-    {% else %}
-    인증 후 관리자 승인을 기다려주세요.
-    {% endif %}
+    문의: <strong>{{ admin_contact }}</strong>
     {% endif %}
   </div>
   <a href="/login" class="btn" style="display:block;text-align:center;text-decoration:none;line-height:1.8">로그인 페이지로</a>
@@ -73,13 +63,6 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
       <label for="email">이메일</label>
       <input type="email" id="email" name="email" placeholder="example@{{ domain }}" required autocomplete="off">
       <div id="email-status" class="email-status"></div>
-      <p class="verify-note">
-        <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style="color:#1a56a0;flex-shrink:0">
-          <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
-          <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
-        </svg>
-        가입 후 이메일로 인증 링크가 발송됩니다
-      </p>
     </div>
     <div class="field">
       <label for="team">소속 부서</label>

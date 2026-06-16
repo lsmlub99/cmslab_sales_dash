@@ -1,4 +1,4 @@
-import os, secrets
+import os
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..auth import verify_password, hash_password, create_access_token, get_current_user
-from ..email import send_verification_email
 
 ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "wonik.com")
 
@@ -66,11 +65,6 @@ async def login(
     user: User = db.query(User).filter(User.email == email).first()
 
     if user and verify_password(password, user.hashed_password):
-        if not user.email_verified and user.role != "admin":
-            return templates.TemplateResponse(
-                "login.html",
-                {"request": request, "error": "이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.", "pending": True},
-            )
         if not user.is_active:
             return templates.TemplateResponse(
                 "login.html",
@@ -125,19 +119,9 @@ async def register(
     if len(password) < 8:
         return templates.TemplateResponse("register.html", {**ctx, "error": "비밀번호는 8자 이상이어야 합니다."})
 
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        if not existing.email_verified:
-            # 인증 미완료 → 토큰 재발급 후 재발송
-            existing.verification_token = secrets.token_urlsafe(32)
-            db.commit()
-            send_verification_email(email, existing.name or name, existing.verification_token)
-            return templates.TemplateResponse("register.html", {
-                **ctx, "error": None, "success": True, "resent": True,
-            })
+    if db.query(User).filter(User.email == email).first():
         return templates.TemplateResponse("register.html", {**ctx, "error": "이미 등록된 이메일입니다."})
 
-    token = secrets.token_urlsafe(32)
     db.add(User(
         email=email,
         hashed_password=hash_password(password),
@@ -145,25 +129,13 @@ async def register(
         role="viewer",
         allowed_teams=[team],
         is_active=False,
-        email_verified=False,
-        verification_token=token,
+        email_verified=True,
     ))
     db.commit()
-    send_verification_email(email, name.strip(), token)
     return templates.TemplateResponse("register.html", {
-        **ctx, "error": None, "success": True, "resent": False,
+        **ctx, "error": None, "success": True,
     })
 
-
-@router.get("/verify-email/{token}", response_class=HTMLResponse)
-async def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.verification_token == token).first()
-    if not user:
-        return templates.TemplateResponse("verify_email.html", {"request": request, "success": False})
-    user.email_verified = True
-    user.verification_token = None
-    db.commit()
-    return templates.TemplateResponse("verify_email.html", {"request": request, "success": True, "name": user.name})
 
 
 @router.get("/check-email")
@@ -172,10 +144,7 @@ async def check_email(email: str, db: Session = Depends(get_db)):
     domain = _get_allowed_domain(db)
     if not email.lower().endswith(f"@{domain}"):
         return {"available": False, "reason": "domain", "message": f"@{domain} 도메인만 가입 가능합니다"}
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        if not existing.email_verified:
-            return {"available": False, "reason": "unverified", "message": "인증 미완료 계정입니다. 가입 신청하면 인증 메일을 재발송합니다"}
+    if db.query(User).filter(User.email == email).first():
         return {"available": False, "reason": "taken", "message": "이미 등록된 이메일입니다"}
     return {"available": True, "message": "사용 가능한 이메일입니다"}
 
