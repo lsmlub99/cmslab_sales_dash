@@ -66,7 +66,7 @@ async def login(
     user: User = db.query(User).filter(User.email == email).first()
 
     if user and verify_password(password, user.hashed_password):
-        if not user.email_verified:
+        if not user.email_verified and user.role != "admin":
             return templates.TemplateResponse(
                 "login.html",
                 {"request": request, "error": "이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.", "pending": True},

@@ -13,6 +13,31 @@ from .auth import hash_password
 from .scheduler import start_scheduler
 
 
+def _run_migrations():
+    """기존 테이블에 누락된 컬럼을 추가한다 (멱등 실행 가능)."""
+    from .database import SessionLocal
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        db.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE"
+        ))
+        db.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(100)"
+        ))
+        # 관리자는 이메일 인증 없이 바로 로그인 가능해야 함
+        db.execute(text(
+            "UPDATE users SET email_verified = TRUE WHERE role = 'admin'"
+        ))
+        db.commit()
+        print("[Migration] 완료")
+    except Exception as e:
+        print(f"[Migration] 오류: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _create_first_admin():
     """관리자 계정이 없으면 환경변수로 자동 생성."""
     from .database import SessionLocal
@@ -28,6 +53,7 @@ def _create_first_admin():
                 role="admin",
                 allowed_teams=None,
                 is_active=True,
+                email_verified=True,
             ))
             db.commit()
             print(f"[Init] 관리자 계정 생성: {email}")
@@ -38,6 +64,7 @@ def _create_first_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     _create_first_admin()
     scheduler = start_scheduler()
     yield
