@@ -9,8 +9,7 @@ from ..models import User
 from ..data.parser import (
     get_active_records,
     get_active_snapshot_info,
-    make_dashboard_html,
-    make_compare_html,
+    get_cached_html,
 )
 
 router = APIRouter()
@@ -84,13 +83,16 @@ async def dashboard(
     if not current_user:
         return RedirectResponse("/login", status_code=302)
 
+    info = get_active_snapshot_info(db)
+    if not info:
+        return HTMLResponse(_NO_DATA_HTML)
+
     records = get_active_records(db, current_user.allowed_teams)
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 
-    info = get_active_snapshot_info(db)
-    base_date = info["base_date"] if info else ""
-    return HTMLResponse(_inject_nav(make_dashboard_html(records, base_date), current_user, db))
+    html = get_cached_html("dashboard", info["id"], current_user.allowed_teams, records, info["base_date"])
+    return HTMLResponse(_inject_nav(html, current_user, db))
 
 
 @router.get("/compare", response_class=HTMLResponse)
@@ -101,10 +103,13 @@ async def compare(
     if not current_user:
         return RedirectResponse("/login", status_code=302)
 
+    info = get_active_snapshot_info(db)
+    if not info:
+        return HTMLResponse(_NO_DATA_HTML)
+
     records = get_active_records(db, current_user.allowed_teams)
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 
-    info = get_active_snapshot_info(db)
-    base_date = info["base_date"] if info else ""
-    return HTMLResponse(_inject_nav(make_compare_html(records, base_date), current_user, db))
+    html = get_cached_html("compare", info["id"], current_user.allowed_teams, records, info["base_date"])
+    return HTMLResponse(_inject_nav(html, current_user, db))

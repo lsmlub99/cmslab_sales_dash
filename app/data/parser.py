@@ -3,7 +3,7 @@
 DB 저장 / 조회 함수도 여기서 관리.
 """
 import os, sys, json, importlib.util
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 
 # 원본 스크립트 경로 (환경변수 또는 기본 상대 경로)
@@ -17,6 +17,7 @@ DASHBOARD_SRC_PATH = os.getenv(
 _dashboard_mod = None
 _compare_mod = None
 _chartjs_cache: Optional[str] = None
+_html_cache: Dict = {}   # key: (snapshot_id, teams_key, page) -> html
 
 
 def _load_dashboard(force: bool = False):
@@ -108,6 +109,7 @@ def save_snapshot(
     db.bulk_save_objects(db_records)
     db.commit()
     db.refresh(snapshot)
+    clear_html_cache()   # 새 데이터 업로드 → 렌더링 캐시 무효화
     return snapshot
 
 
@@ -156,6 +158,7 @@ def get_active_snapshot_info(db: Session) -> Optional[Dict]:
     if not s:
         return None
     return {
+        "id": s.id,
         "week_label": s.week_label,
         "base_date": s.base_date,
         "uploaded_at": s.uploaded_at.strftime("%Y-%m-%d %H:%M") if s.uploaded_at else "",
@@ -164,8 +167,13 @@ def get_active_snapshot_info(db: Session) -> Optional[Dict]:
 
 # ─── HTML 생성 ───────────────────────────────────────────────────────────────
 
+def _teams_key(allowed_teams: Optional[List[str]]) -> str:
+    if not allowed_teams:
+        return "__all__"
+    return ",".join(sorted(allowed_teams))
+
+
 def make_dashboard_html(records: List[Dict], base_date: str) -> str:
-    """기존 make_html() 을 재활용해 대시보드 HTML 생성."""
     global _chartjs_cache
     mod = _load_dashboard()
     data_json = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
@@ -175,6 +183,27 @@ def make_dashboard_html(records: List[Dict], base_date: str) -> str:
 
 
 def make_compare_html(records: List[Dict], base_date: str) -> str:
-    """기존 비교 make_html() 재활용."""
     mod = _load_compare()
     return mod.make_html(records, base_date)
+
+
+def get_cached_html(
+    page: str,
+    snapshot_id: int,
+    allowed_teams: Optional[List[str]],
+    records: List[Dict],
+    base_date: str,
+) -> str:
+    """HTML 결과를 (snapshot_id, teams, page) 키로 캐시. 새 스냅샷 업로드 시 자동 무효화."""
+    key = (snapshot_id, _teams_key(allowed_teams), page)
+    if key in _html_cache:
+        return _html_cache[key]
+    html = make_dashboard_html(records, base_date) if page == "dashboard" else make_compare_html(records, base_date)
+    _html_cache[key] = html
+    return html
+
+
+def clear_html_cache():
+    """새 스냅샷 업로드 시 HTML 캐시 전체 무효화."""
+    global _html_cache
+    _html_cache = {}
