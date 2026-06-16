@@ -24,21 +24,28 @@ _NO_DATA_HTML = """
 </body></html>
 """
 
-_NAV_STYLE = """
+_NAV_HEIGHT = 36   # 네비바 높이(px) — 대시보드 sticky 오프셋 계산에 사용
+
+_NAV_STYLE = f"""
 <style>
-#__cms-topnav{position:fixed;top:0;left:0;right:0;z-index:99999;
+#__cms-topnav{{position:fixed;top:0;left:0;right:0;z-index:99999;
   background:#1a56a0;padding:6px 20px;display:flex;align-items:center;
   justify-content:space-between;font-family:'Malgun Gothic',sans-serif;
-  font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
-#__cms-topnav .nav-title{color:#fff;font-weight:700;letter-spacing:-.3px}
-#__cms-topnav .nav-right{display:flex;gap:14px;align-items:center}
-#__cms-topnav .nav-user{color:rgba(255,255,255,.75)}
-#__cms-topnav a{color:rgba(255,255,255,.85);text-decoration:none}
-#__cms-topnav a:hover{color:#fff}
-#__cms-topnav .nav-logout{background:rgba(255,255,255,.15);padding:3px 12px;
-  border-radius:5px;color:#fff !important}
-#__cms-topnav .nav-logout:hover{background:rgba(255,255,255,.28)}
-body{padding-top:36px !important}
+  font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.2)}}
+#__cms-topnav .nav-title{{color:#fff;font-weight:700;letter-spacing:-.3px}}
+#__cms-topnav .nav-right{{display:flex;gap:14px;align-items:center}}
+#__cms-topnav .nav-user{{color:rgba(255,255,255,.75)}}
+#__cms-topnav a{{color:rgba(255,255,255,.85);text-decoration:none}}
+#__cms-topnav a:hover{{color:#fff}}
+#__cms-topnav .nav-logout{{background:rgba(255,255,255,.15);padding:3px 12px;
+  border-radius:5px;color:#fff !important}}
+#__cms-topnav .nav-logout:hover{{background:rgba(255,255,255,.28)}}
+body{{padding-top:{_NAV_HEIGHT}px !important}}
+/* 대시보드 sticky/fixed 요소: 네비바 높이만큼 top 오프셋 */
+.sticky-header   {{top:{_NAV_HEIGHT}px !important}}
+.sticky-filterbar{{top:{44  + _NAV_HEIGHT}px !important}}
+.sticky-kpi      {{top:{114 + _NAV_HEIGHT}px !important}}
+#pane-print      {{top:{114 + _NAV_HEIGHT}px !important}}
 </style>
 """
 
