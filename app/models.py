@@ -11,18 +11,22 @@ class TextList(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if dialect.name == "postgresql":
-            return value  # PostgreSQL은 네이티브 ARRAY 사용
         return json.dumps(value, ensure_ascii=False)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        if dialect.name == "postgresql":
-            return value
         if isinstance(value, list):
             return value
-        return json.loads(value)
+        if isinstance(value, str):
+            # JSON 배열 형식 ["팀A","팀B"]
+            if value.startswith('['):
+                return json.loads(value)
+            # psycopg2가 TEXT 컬럼에서 그대로 반환한 PostgreSQL 배열 리터럴 {팀A,팀B}
+            if value.startswith('{') and value.endswith('}'):
+                inner = value[1:-1]
+                return [s.strip().strip('"') for s in inner.split(',')] if inner else []
+        return value
 
 
 class User(Base):
