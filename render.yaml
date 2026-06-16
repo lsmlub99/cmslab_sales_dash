@@ -21,4 +21,6 @@ services:
         sync: false
       - key: APP_URL
         value: "https://cmslab-sales-dash.onrender.com"
+      - key: DELETE_USER_EMAIL
+        sync: false
     autoDeploy: true

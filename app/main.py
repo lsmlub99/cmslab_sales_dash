@@ -39,13 +39,37 @@ def _run_migrations():
 
 
 def _create_first_admin():
-    """관리자 계정이 없으면 환경변수로 자동 생성."""
+    """FIRST_ADMIN_EMAIL로 관리자 계정 생성 또는 업그레이드.
+    DELETE_USER_EMAIL이 설정된 경우 해당 계정을 먼저 삭제한다.
+    """
     from .database import SessionLocal
     db = SessionLocal()
     try:
-        if db.query(User).filter(User.role == "admin").count() == 0:
-            email = os.getenv("FIRST_ADMIN_EMAIL", "admin@cms-lab.co.kr")
-            password = os.getenv("FIRST_ADMIN_PASSWORD", "changeme123!")
+        # DELETE_USER_EMAIL: 지정한 계정 삭제 (테스트용 계정 정리 등)
+        delete_email = os.getenv("DELETE_USER_EMAIL", "").strip()
+        if delete_email:
+            target = db.query(User).filter(User.email == delete_email).first()
+            if target:
+                db.delete(target)
+                db.commit()
+                print(f"[Init] 계정 삭제: {delete_email}")
+
+        email = os.getenv("FIRST_ADMIN_EMAIL", "admin@cms-lab.co.kr").strip()
+        password = os.getenv("FIRST_ADMIN_PASSWORD", "").strip()
+        if not password:
+            return
+
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            # 이미 있으면 관리자 권한 확인 후 업그레이드
+            if existing.role != "admin":
+                existing.role = "admin"
+                existing.is_active = True
+                existing.email_verified = True
+                existing.hashed_password = hash_password(password)
+                db.commit()
+                print(f"[Init] 기존 계정 관리자로 업그레이드: {email}")
+        else:
             db.add(User(
                 email=email,
                 hashed_password=hash_password(password),

@@ -329,7 +329,18 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             <td>{{ u.id }}</td>
             <td>{{ u.name or '—' }}</td>
             <td>{{ u.email }}</td>
-            <td><span class="badge {{ 'badge-admin bg-primary' if u.role == 'admin' else 'badge-viewer bg-secondary' }}">{{ u.role }}</span></td>
+            <td>
+              {% if u.id == user.id %}
+              <span class="badge {{ 'badge-admin bg-primary' if u.role == 'admin' else 'badge-viewer bg-secondary' }}">{{ u.role }}</span>
+              {% else %}
+              <select class="form-select form-select-sm py-0" style="min-width:105px;font-size:12px"
+                data-original="{{ u.role }}"
+                onchange="changeRole({{ u.id }}, this.value, this)">
+                <option value="viewer" {{ 'selected' if u.role == 'viewer' }}>viewer (일반)</option>
+                <option value="admin" {{ 'selected' if u.role == 'admin' }}>admin (관리자)</option>
+              </select>
+              {% endif %}
+            </td>
             <td style="font-size:12px">{{ ', '.join(u.allowed_teams) if u.allowed_teams else '전체' }}</td>
             <td>
               {% if u.is_active %}
@@ -545,6 +556,26 @@ async function approveUser(userId, verified) {
     body: JSON.stringify({ action: 'update', id: userId, is_active: true, allowed_teams }),
   });
   if ((await res.json()).ok) location.reload();
+}
+
+async function changeRole(userId, newRole, selectEl) {
+  const label = newRole === 'admin' ? 'admin (관리자)' : 'viewer (일반)';
+  if (!confirm(`역할을 '${label}'로 변경하시겠습니까?`)) {
+    selectEl.value = selectEl.dataset.original;  // 취소 시 원래 값 복원
+    return;
+  }
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: userId, role: newRole }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    selectEl.dataset.original = newRole;  // 성공 시 기준값 갱신
+  } else {
+    alert('오류: ' + (data.detail || '변경 실패'));
+    selectEl.value = selectEl.dataset.original;  // 실패 시 복원
+  }
 }
 
 async function toggleActive(userId, newState) {
