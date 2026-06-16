@@ -16,11 +16,14 @@ DASHBOARD_SRC_PATH = os.getenv(
 
 _dashboard_mod = None
 _compare_mod = None
+_chartjs_cache: Optional[str] = None
 
 
-def _load_dashboard():
-    """매출 Dashboard_vf.py 를 importlib로 로드 (fresh load 보장)."""
+def _load_dashboard(force: bool = False):
+    """매출 Dashboard_vf.py 를 importlib로 로드. force=True 일 때만 재컴파일."""
     global _dashboard_mod
+    if _dashboard_mod is not None and not force:
+        return _dashboard_mod
     path = os.path.join(os.path.abspath(DASHBOARD_SRC_PATH), "매출 Dashboard_vf.py")
     if not os.path.exists(path):
         raise FileNotFoundError(
@@ -35,9 +38,11 @@ def _load_dashboard():
     return mod
 
 
-def _load_compare():
-    """매출_선택비교_vf.py 를 importlib로 로드."""
+def _load_compare(force: bool = False):
+    """매출_선택비교_vf.py 를 importlib로 로드. force=True 일 때만 재컴파일."""
     global _compare_mod
+    if _compare_mod is not None and not force:
+        return _compare_mod
     path = os.path.join(os.path.abspath(DASHBOARD_SRC_PATH), "매출_선택비교_vf.py")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Compare source not found: {path}")
@@ -52,10 +57,8 @@ def _load_compare():
 # ─── Excel 파싱 ──────────────────────────────────────────────────────────────
 
 def extract_records_from_excel(xlsx_path: str):
-    """Excel → (records list, base_date str). 매번 fresh load 해서 전역 상태 초기화."""
-    global _dashboard_mod
-    _dashboard_mod = None          # WEEKLY_COLS 전역 상태 때문에 매번 재로드
-    mod = _load_dashboard()
+    """Excel → (records list, base_date str). Excel 업로드 시에는 강제 재로드."""
+    mod = _load_dashboard(force=True)   # WEEKLY_COLS 전역 상태 때문에 업로드 시만 재로드
     records = mod.extract_data(xlsx_path)
     base_date = mod.read_base_date(xlsx_path)
     return records, base_date
@@ -163,10 +166,12 @@ def get_active_snapshot_info(db: Session) -> Optional[Dict]:
 
 def make_dashboard_html(records: List[Dict], base_date: str) -> str:
     """기존 make_html() 을 재활용해 대시보드 HTML 생성."""
+    global _chartjs_cache
     mod = _load_dashboard()
     data_json = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
-    chartjs_src = mod.load_chartjs()
-    return mod.make_html(data_json, chartjs_src, base_date)
+    if _chartjs_cache is None:
+        _chartjs_cache = mod.load_chartjs()
+    return mod.make_html(data_json, _chartjs_cache, base_date)
 
 
 def make_compare_html(records: List[Dict], base_date: str) -> str:
