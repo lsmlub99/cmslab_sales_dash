@@ -1,6 +1,6 @@
 import os, tempfile, threading
 from typing import Optional
-from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -109,7 +109,6 @@ def _run_upload_task(task_id: str, tmp_path: str, label: str, user_id: int):
 
 @router.post("/upload")
 async def upload_excel(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     week_label: str = Form(""),
     current_user: User = Depends(require_admin),

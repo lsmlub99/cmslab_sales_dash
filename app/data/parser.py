@@ -113,8 +113,10 @@ def save_snapshot(
         db.add(snapshot)
         db.flush()
     else:
+        import datetime
         snapshot.week_label = week_label
         snapshot.base_date = base_date
+        snapshot.uploaded_at = datetime.datetime.utcnow()
         db.flush()
 
     _FW = ["fw1", "fw2", "fw3", "fw4", "fw5"]
