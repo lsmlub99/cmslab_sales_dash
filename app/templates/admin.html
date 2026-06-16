@@ -258,14 +258,14 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             </td>
             <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
             <td>
-              {% if u.email_verified %}
-              <button class="btn btn-success btn-sm py-0 px-3 me-1"
-                onclick="approveUser({{ u.id }}, true)">승인</button>
-              {% else %}
-              <button class="btn btn-outline-secondary btn-sm py-0 px-3 me-1"
-                title="이메일 미인증 상태입니다"
-                onclick="approveUser({{ u.id }}, false)">승인</button>
+              {% if not u.email_verified %}
+              <button class="btn btn-outline-warning btn-sm py-0 px-2 me-1"
+                title="이메일 인증을 대신 처리합니다"
+                onclick="forceVerify({{ u.id }})">인증처리</button>
               {% endif %}
+              <button class="btn {{ 'btn-success' if u.email_verified else 'btn-outline-secondary' }} btn-sm py-0 px-3 me-1"
+                title="{{ '' if u.email_verified else '이메일 미인증 상태입니다' }}"
+                onclick="approveUser({{ u.id }}, {{ 'true' if u.email_verified else 'false' }})">승인</button>
               <button class="btn btn-outline-danger btn-sm py-0 px-2"
                 onclick="deleteUser({{ u.id }})">거절</button>
             </td>
@@ -540,6 +540,16 @@ async function createUser() {
   } else {
     alert('오류: ' + (data.detail || JSON.stringify(data)));
   }
+}
+
+async function forceVerify(userId) {
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: userId, email_verified: true }),
+  });
+  if ((await res.json()).ok) location.reload();
+  else alert('처리 실패');
 }
 
 async function approveUser(userId, verified) {

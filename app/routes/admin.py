@@ -292,6 +292,7 @@ async def manage_users(
             role=body.get("role", "viewer"),
             allowed_teams=teams,
             is_active=True,
+            email_verified=True,   # 관리자 직접 추가 = 인증 불필요
         )
         db.add(user)
         db.commit()
@@ -301,7 +302,7 @@ async def manage_users(
         user = db.query(User).filter(User.id == body["id"]).first()
         if not user:
             raise HTTPException(404, "사용자를 찾을 수 없습니다.")
-        for field in ("name", "role", "is_active"):
+        for field in ("name", "role", "is_active", "email_verified"):
             if field in body:
                 setattr(user, field, body[field])
         if "allowed_teams" in body:
@@ -384,6 +385,31 @@ async def update_config(
         if k in allowed_keys:
             set_config(db, k, str(v))
     return {"ok": True}
+
+
+# ─── 이메일 테스트 ────────────────────────────────────────────────────────────
+
+@router.get("/test-email")
+async def test_email(
+    to: str,
+    current_user: User = Depends(require_admin),
+):
+    """관리자용: Resend 이메일 발송 테스트. GET /admin/test-email?to=xxx@yyy.com"""
+    from ..email import FROM_EMAIL, RESEND_API_KEY
+    if not RESEND_API_KEY:
+        return JSONResponse({"ok": False, "error": "RESEND_API_KEY 환경변수가 설정되지 않았습니다."})
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+        r = resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [to],
+            "subject": "[CMS Lab] 이메일 발송 테스트",
+            "html": "<p>이메일 발송 테스트입니다. 정상적으로 수신됐다면 Resend 설정이 올바릅니다.</p>",
+        })
+        return JSONResponse({"ok": True, "resend_id": str(r), "from": FROM_EMAIL, "to": to})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e), "from": FROM_EMAIL, "to": to})
 
 
 # ─── 스케줄러 수동 트리거 ────────────────────────────────────────────────────
