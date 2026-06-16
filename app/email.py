@@ -1,9 +1,11 @@
 import os
-import resend
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
-APP_URL = os.getenv("APP_URL", "https://cmslab-sales-dash.onrender.com")
+GMAIL_USER        = os.getenv("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+APP_URL           = os.getenv("APP_URL", "https://cmslab-sales-dash.onrender.com")
 
 
 def send_verification_email(to_email: str, name: str, token: str) -> bool:
@@ -26,19 +28,23 @@ def send_verification_email(to_email: str, name: str, token: str) -> bool:
   </p>
 </div>"""
 
-    if not RESEND_API_KEY:
-        print(f"[Email] RESEND_API_KEY 미설정 — 인증 링크: {verify_url}")
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        print(f"[Email] Gmail 미설정 — 인증 링크: {verify_url}")
         return False
 
     try:
-        resend.api_key = RESEND_API_KEY
-        resend.Emails.send({
-            "from": FROM_EMAIL,
-            "to": [to_email],
-            "subject": "[CMS Lab 매출 대시보드] 이메일 인증",
-            "html": html,
-        })
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "[CMS Lab 매출 대시보드] 이메일 인증"
+        msg["From"]    = f"CMS Lab 대시보드 <{GMAIL_USER}>"
+        msg["To"]      = to_email
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, to_email, msg.as_string())
+
+        print(f"[Email] 발송 완료 → {to_email}")
         return True
     except Exception as e:
-        print(f"[Email] Resend 오류: {e}")
+        print(f"[Email] Gmail SMTP 오류: {e}")
         return False

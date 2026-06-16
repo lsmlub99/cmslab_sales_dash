@@ -15,9 +15,9 @@ services:
         sync: false
       - key: FIRST_ADMIN_PASSWORD
         sync: false
-      - key: RESEND_API_KEY
+      - key: GMAIL_USER
         sync: false
-      - key: FROM_EMAIL
+      - key: GMAIL_APP_PASSWORD
         sync: false
       - key: APP_URL
         value: "https://cmslab-sales-dash.onrender.com"

@@ -394,22 +394,25 @@ async def test_email(
     to: str,
     current_user: User = Depends(require_admin),
 ):
-    """관리자용: Resend 이메일 발송 테스트. GET /admin/test-email?to=xxx@yyy.com"""
-    from ..email import FROM_EMAIL, RESEND_API_KEY
-    if not RESEND_API_KEY:
-        return JSONResponse({"ok": False, "error": "RESEND_API_KEY 환경변수가 설정되지 않았습니다."})
+    """관리자용: Gmail SMTP 이메일 발송 테스트. GET /admin/test-email?to=xxx@yyy.com"""
+    from ..email import GMAIL_USER, GMAIL_APP_PASSWORD
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return JSONResponse({"ok": False, "error": "GMAIL_USER 또는 GMAIL_APP_PASSWORD 환경변수가 설정되지 않았습니다."})
     try:
-        import resend
-        resend.api_key = RESEND_API_KEY
-        r = resend.Emails.send({
-            "from": FROM_EMAIL,
-            "to": [to],
-            "subject": "[CMS Lab] 이메일 발송 테스트",
-            "html": "<p>이메일 발송 테스트입니다. 정상적으로 수신됐다면 Resend 설정이 올바릅니다.</p>",
-        })
-        return JSONResponse({"ok": True, "resend_id": str(r), "from": FROM_EMAIL, "to": to})
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "[CMS Lab] 이메일 발송 테스트"
+        msg["From"]    = f"CMS Lab 대시보드 <{GMAIL_USER}>"
+        msg["To"]      = to
+        msg.attach(MIMEText("<p>Gmail SMTP 설정이 정상입니다.</p>", "html", "utf-8"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, to, msg.as_string())
+        return JSONResponse({"ok": True, "from": GMAIL_USER, "to": to})
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e), "from": FROM_EMAIL, "to": to})
+        return JSONResponse({"ok": False, "error": str(e), "from": GMAIL_USER, "to": to})
 
 
 # ─── 스케줄러 수동 트리거 ────────────────────────────────────────────────────
