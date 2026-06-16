@@ -1,9 +1,8 @@
 import os
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+import resend
 
-SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
-FROM_EMAIL = os.getenv("FROM_EMAIL", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
 APP_URL = os.getenv("APP_URL", "https://cmslab-sales-dash.onrender.com")
 
 
@@ -27,19 +26,19 @@ def send_verification_email(to_email: str, name: str, token: str) -> bool:
   </p>
 </div>"""
 
-    if not SENDGRID_API_KEY:
-        print(f"[Email] SENDGRID_API_KEY 미설정 — 인증 링크: {verify_url}")
+    if not RESEND_API_KEY:
+        print(f"[Email] RESEND_API_KEY 미설정 — 인증 링크: {verify_url}")
         return False
 
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        sg.send(Mail(
-            from_email=FROM_EMAIL,
-            to_emails=to_email,
-            subject="[CMS Lab 매출 대시보드] 이메일 인증",
-            html_content=html,
-        ))
+        resend.api_key = RESEND_API_KEY
+        resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [to_email],
+            "subject": "[CMS Lab 매출 대시보드] 이메일 인증",
+            "html": html,
+        })
         return True
     except Exception as e:
-        print(f"[Email] SendGrid 오류: {e}")
+        print(f"[Email] Resend 오류: {e}")
         return False
