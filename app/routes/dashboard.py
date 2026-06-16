@@ -10,6 +10,8 @@ from ..data.parser import (
     get_active_records,
     get_active_snapshot_info,
     get_cached_html,
+    get_record_count,
+    _AGGREGATE_THRESHOLD,
 )
 
 router = APIRouter()
@@ -87,7 +89,8 @@ async def dashboard(
     if not info:
         return HTMLResponse(_NO_DATA_HTML)
 
-    records = get_active_records(db, current_user.allowed_teams)
+    use_agg = get_record_count(db) > _AGGREGATE_THRESHOLD
+    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg)
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 
@@ -107,7 +110,8 @@ async def compare(
     if not info:
         return HTMLResponse(_NO_DATA_HTML)
 
-    records = get_active_records(db, current_user.allowed_teams)
+    use_agg = get_record_count(db) > _AGGREGATE_THRESHOLD
+    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg)
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 

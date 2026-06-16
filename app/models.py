@@ -1,5 +1,5 @@
 import os, json, datetime
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, TypeDecorator
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, TypeDecorator, Index
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -83,6 +83,11 @@ class SalesRecord(Base):
     fw5 = Column(Numeric(15, 3), nullable=True)
 
     snapshot = relationship("Snapshot", back_populates="records")
+
+    __table_args__ = (
+        Index("ix_sr_snapshot_team", "snapshot_id", "team"),
+        Index("ix_sr_snapshot_month", "snapshot_id", "month"),
+    )
 
 
 class Team(Base):

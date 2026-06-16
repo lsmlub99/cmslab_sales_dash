@@ -2,9 +2,10 @@
 기존 매출 Dashboard_vf.py 의 extract_data / make_html 을 importlib로 재활용.
 DB 저장 / 조회 함수도 여기서 관리.
 """
-import os, sys, json, importlib.util
-from typing import List, Dict, Optional, Tuple
+import os, sys, json, uuid, importlib.util
+from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 # 원본 스크립트 경로 (환경변수 또는 기본 상대 경로)
 DASHBOARD_SRC_PATH = os.getenv(
@@ -17,7 +18,10 @@ DASHBOARD_SRC_PATH = os.getenv(
 _dashboard_mod = None
 _compare_mod = None
 _chartjs_cache: Optional[str] = None
-_html_cache: Dict = {}   # key: (snapshot_id, teams_key, page) -> html
+_html_cache: Dict = {}      # key: (snapshot_id, teams_key, page) -> html
+_upload_tasks: Dict = {}    # key: task_id -> { status, progress, total, message }
+
+_CHUNK_SIZE = 5_000         # DB insert 청크 크기
 
 
 def _load_dashboard(force: bool = False):
@@ -55,6 +59,23 @@ def _load_compare(force: bool = False):
     return mod
 
 
+# ─── 업로드 진행률 관리 ──────────────────────────────────────────────────────
+
+def create_upload_task() -> str:
+    task_id = str(uuid.uuid4())
+    _upload_tasks[task_id] = {"status": "pending", "progress": 0, "total": 0, "message": "대기 중"}
+    return task_id
+
+
+def get_upload_task(task_id: str) -> Optional[Dict]:
+    return _upload_tasks.get(task_id)
+
+
+def _set_task(task_id: str, **kwargs):
+    if task_id in _upload_tasks:
+        _upload_tasks[task_id].update(kwargs)
+
+
 # ─── Excel 파싱 ──────────────────────────────────────────────────────────────
 
 def extract_records_from_excel(xlsx_path: str):
@@ -73,8 +94,9 @@ def save_snapshot(
     week_label: str,
     base_date: str,
     uploaded_by_id: Optional[int] = None,
+    task_id: Optional[str] = None,
 ):
-    """기존 active 스냅샷 비활성화 → 새 스냅샷 + 레코드 bulk insert."""
+    """기존 active 스냅샷 비활성화 → 새 스냅샷 + 레코드 청크 단위 bulk insert."""
     from ..models import Snapshot, SalesRecord
 
     db.query(Snapshot).filter(Snapshot.is_active == True).update({"is_active": False})
@@ -89,41 +111,59 @@ def save_snapshot(
     db.flush()
 
     _FW = ["fw1", "fw2", "fw3", "fw4", "fw5"]
-    db_records = []
-    for r in records:
-        fw_vals = {fw: r.get(fw) for fw in _FW}
-        db_records.append(SalesRecord(
-            snapshot_id=snapshot.id,
-            team=r.get("team", ""),
-            channel=r.get("channel", ""),
-            brand=r.get("brand", "기타"),
-            code=r.get("code", ""),
-            month=r.get("month", 0),
-            y2024=r.get("y2024", 0),
-            y2025b=r.get("y2025b", 0),
-            y2025=r.get("y2025", 0),
-            plan=r.get("plan", 0),
-            actual=r.get("actual", 0),
-            **fw_vals,
-        ))
-    db.bulk_save_objects(db_records)
-    db.commit()
+    total = len(records)
+    if task_id:
+        _set_task(task_id, status="inserting", total=total, message=f"DB 저장 중 (0 / {total:,}건)")
+
+    for chunk_start in range(0, total, _CHUNK_SIZE):
+        chunk = records[chunk_start: chunk_start + _CHUNK_SIZE]
+        db_records = []
+        for r in chunk:
+            fw_vals = {fw: r.get(fw) for fw in _FW}
+            db_records.append(SalesRecord(
+                snapshot_id=snapshot.id,
+                team=r.get("team", ""),
+                channel=r.get("channel", ""),
+                brand=r.get("brand", "기타"),
+                code=r.get("code", ""),
+                month=r.get("month", 0),
+                y2024=r.get("y2024", 0),
+                y2025b=r.get("y2025b", 0),
+                y2025=r.get("y2025", 0),
+                plan=r.get("plan", 0),
+                actual=r.get("actual", 0),
+                **fw_vals,
+            ))
+        db.bulk_save_objects(db_records)
+        db.commit()
+
+        done = min(chunk_start + _CHUNK_SIZE, total)
+        if task_id:
+            _set_task(task_id, progress=done, message=f"DB 저장 중 ({done:,} / {total:,}건)")
+
     db.refresh(snapshot)
-    clear_html_cache()   # 새 데이터 업로드 → 렌더링 캐시 무효화
+    clear_html_cache()
     return snapshot
 
 
 # ─── DB 조회 ─────────────────────────────────────────────────────────────────
 
 def get_active_records(
-    db: Session, allowed_teams: Optional[List[str]] = None
+    db: Session,
+    allowed_teams: Optional[List[str]] = None,
+    aggregated: bool = False,
 ) -> List[Dict]:
-    """active 스냅샷 레코드를 dict 리스트로 반환. allowed_teams=None 이면 전체."""
+    """active 스냅샷 레코드 반환.
+    aggregated=True 이면 DB에서 (team, brand, month) 기준으로 GROUP BY SUM → 대용량 최적화.
+    """
     from ..models import Snapshot, SalesRecord
 
     snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
     if not snapshot:
         return []
+
+    if aggregated:
+        return _get_aggregated_records(db, snapshot.id, allowed_teams)
 
     q = db.query(SalesRecord).filter(SalesRecord.snapshot_id == snapshot.id)
     if allowed_teams:
@@ -150,6 +190,56 @@ def get_active_records(
     return result
 
 
+def _get_aggregated_records(
+    db: Session,
+    snapshot_id: int,
+    allowed_teams: Optional[List[str]] = None,
+) -> List[Dict]:
+    """DB에서 (team, brand, month) 기준 SUM 집계 → 대용량 데이터 대시보드 렌더링용."""
+    from ..models import SalesRecord
+
+    cols = [
+        SalesRecord.team,
+        SalesRecord.brand,
+        SalesRecord.month,
+        func.sum(SalesRecord.y2024).label("y2024"),
+        func.sum(SalesRecord.y2025b).label("y2025b"),
+        func.sum(SalesRecord.y2025).label("y2025"),
+        func.sum(SalesRecord.plan).label("plan"),
+        func.sum(SalesRecord.actual).label("actual"),
+        func.sum(SalesRecord.fw1).label("fw1"),
+        func.sum(SalesRecord.fw2).label("fw2"),
+        func.sum(SalesRecord.fw3).label("fw3"),
+        func.sum(SalesRecord.fw4).label("fw4"),
+        func.sum(SalesRecord.fw5).label("fw5"),
+    ]
+    q = db.query(*cols).filter(SalesRecord.snapshot_id == snapshot_id)
+    if allowed_teams:
+        q = q.filter(SalesRecord.team.in_(allowed_teams))
+    q = q.group_by(SalesRecord.team, SalesRecord.brand, SalesRecord.month)
+
+    result = []
+    for r in q.all():
+        result.append({
+            "team": r.team,
+            "channel": "",   # 집계 시 channel/code 없음
+            "brand": r.brand,
+            "code": "",
+            "month": r.month,
+            "y2024": float(r.y2024 or 0),
+            "y2025b": float(r.y2025b or 0),
+            "y2025": float(r.y2025 or 0),
+            "plan": float(r.plan or 0),
+            "actual": float(r.actual or 0),
+            "fw1": float(r.fw1) if r.fw1 is not None else None,
+            "fw2": float(r.fw2) if r.fw2 is not None else None,
+            "fw3": float(r.fw3) if r.fw3 is not None else None,
+            "fw4": float(r.fw4) if r.fw4 is not None else None,
+            "fw5": float(r.fw5) if r.fw5 is not None else None,
+        })
+    return result
+
+
 def get_active_snapshot_info(db: Session) -> Optional[Dict]:
     """active 스냅샷 메타 정보 반환."""
     from ..models import Snapshot
@@ -165,7 +255,19 @@ def get_active_snapshot_info(db: Session) -> Optional[Dict]:
     }
 
 
+def get_record_count(db: Session) -> int:
+    """active 스냅샷의 레코드 수 반환."""
+    from ..models import Snapshot, SalesRecord
+    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snapshot:
+        return 0
+    return db.query(func.count(SalesRecord.id)).filter(SalesRecord.snapshot_id == snapshot.id).scalar() or 0
+
+
 # ─── HTML 생성 ───────────────────────────────────────────────────────────────
+
+_AGGREGATE_THRESHOLD = 50_000   # 이 건수 초과 시 자동 집계 모드 사용
+
 
 def _teams_key(allowed_teams: Optional[List[str]]) -> str:
     if not allowed_teams:
@@ -207,3 +309,28 @@ def clear_html_cache():
     """새 스냅샷 업로드 시 HTML 캐시 전체 무효화."""
     global _html_cache
     _html_cache = {}
+
+
+def prewarm_html_cache(db: Session):
+    """업로드 완료 후 모든 팀 조합의 HTML을 미리 생성해 캐시에 올린다."""
+    from ..models import Team
+    info = get_active_snapshot_info(db)
+    if not info:
+        return
+
+    record_count = get_record_count(db)
+    use_agg = record_count > _AGGREGATE_THRESHOLD
+
+    # 전체 팀 캐시
+    records = get_active_records(db, allowed_teams=None, aggregated=use_agg)
+    if records:
+        get_cached_html("dashboard", info["id"], None, records, info["base_date"])
+        get_cached_html("compare", info["id"], None, records, info["base_date"])
+
+    # 팀별 캐시
+    teams = [t.name for t in db.query(Team).filter(Team.is_active == True).all()]
+    for team in teams:
+        records = get_active_records(db, allowed_teams=[team], aggregated=use_agg)
+        if records:
+            get_cached_html("dashboard", info["id"], [team], records, info["base_date"])
+            get_cached_html("compare", info["id"], [team], records, info["base_date"])

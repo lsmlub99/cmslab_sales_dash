@@ -1,17 +1,21 @@
-import os, tempfile
+import os, tempfile, threading
 from typing import Optional
-from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..auth import require_admin, hash_password
 from ..models import User, Snapshot, SalesRecord, Team, AppConfig
 from ..data.parser import (
     extract_records_from_excel,
     save_snapshot,
     get_active_snapshot_info,
+    create_upload_task,
+    get_upload_task,
+    _set_task,
+    prewarm_html_cache,
 )
 
 router = APIRouter(prefix="/admin")
@@ -78,33 +82,65 @@ async def admin_page(
 
 # ─── Excel 업로드 ─────────────────────────────────────────────────────────────
 
+def _run_upload_task(task_id: str, tmp_path: str, label: str, user_id: int):
+    """백그라운드 스레드: Excel 파싱 → DB insert → HTML 캐시 사전 생성."""
+    db = SessionLocal()
+    try:
+        _set_task(task_id, status="parsing", message="Excel 파일 파싱 중...")
+        records, base_date = extract_records_from_excel(tmp_path)
+        _set_task(task_id, message=f"파싱 완료 ({len(records):,}건). DB 저장 시작...")
+
+        save_snapshot(db, records, label, base_date, user_id, task_id=task_id)
+
+        _set_task(task_id, status="warming", message="대시보드 캐시 사전 생성 중...")
+        prewarm_html_cache(db)
+
+        _set_task(task_id, status="done", progress=len(records), total=len(records),
+                  message=f"✅ 완료: {len(records):,}건 저장 ({label})")
+    except Exception as e:
+        _set_task(task_id, status="error", message=f"❌ 오류: {e}")
+    finally:
+        db.close()
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 @router.post("/upload")
 async def upload_excel(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     week_label: str = Form(""),
-    db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Excel 파일(.xlsx)만 업로드 가능합니다.")
 
+    content = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
-    try:
-        records, base_date = extract_records_from_excel(tmp_path)
-        label = week_label.strip() or os.path.splitext(file.filename)[0]
-        snapshot = save_snapshot(db, records, label, base_date, current_user.id)
-        return RedirectResponse(
-            f"/admin?msg=✅ 업로드 완료: {len(records)}건 저장 ({label})",
-            status_code=302,
-        )
-    except Exception as e:
-        raise HTTPException(500, f"파일 처리 오류: {e}")
-    finally:
-        os.unlink(tmp_path)
+    label = week_label.strip() or os.path.splitext(file.filename)[0]
+    task_id = create_upload_task()
+
+    # 별도 스레드로 실행 (BackgroundTasks는 응답 후 실행되지만 DB 세션이 닫히므로 스레드 사용)
+    t = threading.Thread(target=_run_upload_task, args=(task_id, tmp_path, label, current_user.id), daemon=True)
+    t.start()
+
+    return JSONResponse({"task_id": task_id, "label": label})
+
+
+@router.get("/upload-status/{task_id}")
+async def upload_status(
+    task_id: str,
+    current_user: User = Depends(require_admin),
+):
+    task = get_upload_task(task_id)
+    if not task:
+        raise HTTPException(404, "태스크를 찾을 수 없습니다.")
+    return task
 
 
 # ─── 수동 입력 (Import Form) ─────────────────────────────────────────────────

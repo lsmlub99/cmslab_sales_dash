@@ -82,25 +82,34 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
     <div class="tab-pane fade show active" id="tab-upload">
       <div class="card p-4 mb-4">
         <h6 class="fw-bold mb-3">Excel 파일 업로드</h6>
-        <form method="post" action="/admin/upload" enctype="multipart/form-data">
-          <div class="row g-3 align-items-end">
-            <div class="col-md-5">
-              <label class="form-label">Excel 파일 (.xlsx)</label>
-              <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">스냅샷 레이블 (선택)</label>
-              <input type="text" name="week_label" class="form-control form-control-sm"
-                     placeholder="예: 6월 2주차">
-            </div>
-            <div class="col-md-3">
-              <button type="submit" class="btn btn-primary btn-sm w-100">업로드 &amp; 반영</button>
-            </div>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label">Excel 파일 (.xlsx)</label>
+            <input type="file" id="upload-file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
           </div>
-          <div class="text-muted mt-2" style="font-size:12px">
-            업로드하면 기존 활성 스냅샷이 비활성화되고 새 데이터로 대시보드가 즉시 갱신됩니다.
+          <div class="col-md-4">
+            <label class="form-label">스냅샷 레이블 (선택)</label>
+            <input type="text" id="upload-label" class="form-control form-control-sm" placeholder="예: 6월 2주차">
           </div>
-        </form>
+          <div class="col-md-3">
+            <button class="btn btn-primary btn-sm w-100" onclick="startUpload()">업로드 &amp; 반영</button>
+          </div>
+        </div>
+        <div class="text-muted mt-2" style="font-size:12px">
+          대용량 파일도 백그라운드로 처리됩니다. 업로드 후 진행률을 실시간으로 확인할 수 있습니다.
+        </div>
+
+        <!-- 진행률 영역 -->
+        <div id="upload-progress-area" style="display:none;margin-top:16px">
+          <div class="d-flex justify-content-between mb-1" style="font-size:13px">
+            <span id="upload-status-msg" class="text-secondary">처리 중...</span>
+            <span id="upload-pct" class="fw-bold">0%</span>
+          </div>
+          <div class="progress" style="height:10px;border-radius:6px">
+            <div id="upload-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width:0%;transition:width .4s"></div>
+          </div>
+        </div>
       </div>
 
       <!-- 업로드 이력 -->
@@ -536,6 +545,60 @@ async function toggleActive(userId, newState) {
     body: JSON.stringify({ action: 'update', id: userId, is_active: newState }),
   });
   if ((await res.json()).ok) location.reload();
+}
+
+// ── Excel 업로드 (백그라운드) ────────────────────────────────────────────────
+let _uploadPollTimer = null;
+
+async function startUpload() {
+  const fileInput = document.getElementById('upload-file');
+  const label = document.getElementById('upload-label').value.trim();
+  if (!fileInput.files.length) { alert('파일을 선택하세요.'); return; }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('week_label', label);
+
+  document.getElementById('upload-progress-area').style.display = 'block';
+  _setUploadUI('업로드 중...', 2, 'bg-primary');
+
+  let res, data;
+  try {
+    res = await fetch('/admin/upload', { method: 'POST', body: formData });
+    data = await res.json();
+  } catch(e) {
+    _setUploadUI('❌ 네트워크 오류: ' + e, 100, 'bg-danger'); return;
+  }
+  if (!res.ok) { _setUploadUI('❌ ' + (data.detail || '업로드 실패'), 100, 'bg-danger'); return; }
+
+  _pollUploadStatus(data.task_id);
+}
+
+function _pollUploadStatus(taskId) {
+  if (_uploadPollTimer) clearInterval(_uploadPollTimer);
+  _uploadPollTimer = setInterval(async () => {
+    const r = await fetch(`/admin/upload-status/${taskId}`);
+    const t = await r.json();
+
+    const pct = t.total > 0 ? Math.round(t.progress / t.total * 100) : (t.status === 'parsing' ? 10 : t.status === 'warming' ? 90 : 5);
+    const color = t.status === 'error' ? 'bg-danger' : t.status === 'done' ? 'bg-success' : 'bg-primary';
+    _setUploadUI(t.message, pct, color);
+
+    if (t.status === 'done') {
+      clearInterval(_uploadPollTimer);
+      setTimeout(() => location.reload(), 1500);
+    } else if (t.status === 'error') {
+      clearInterval(_uploadPollTimer);
+    }
+  }, 1500);
+}
+
+function _setUploadUI(msg, pct, colorClass) {
+  document.getElementById('upload-status-msg').textContent = msg;
+  document.getElementById('upload-pct').textContent = pct + '%';
+  const bar = document.getElementById('upload-bar');
+  bar.style.width = pct + '%';
+  bar.className = 'progress-bar progress-bar-striped progress-bar-animated ' + colorClass;
 }
 
 // ── 시스템 설정 ──────────────────────────────────────────────────────────────
