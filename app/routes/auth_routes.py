@@ -156,14 +156,14 @@ async def register(
 
 
 @router.get("/verify-email/{token}", response_class=HTMLResponse)
-async def verify_email(token: str, db: Session = Depends(get_db)):
+async def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.verification_token == token).first()
     if not user:
-        return templates.TemplateResponse("verify_email.html", {"request": None, "success": False})
+        return templates.TemplateResponse("verify_email.html", {"request": request, "success": False})
     user.email_verified = True
     user.verification_token = None
     db.commit()
-    return templates.TemplateResponse("verify_email.html", {"request": None, "success": True, "name": user.name})
+    return templates.TemplateResponse("verify_email.html", {"request": request, "success": True, "name": user.name})
 
 
 @router.get("/logout")
