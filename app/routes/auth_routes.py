@@ -8,7 +8,7 @@ from ..database import get_db
 from ..models import User
 from ..auth import verify_password, hash_password, create_access_token, get_current_user
 
-ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "cms-lab.co.kr")
+ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "wonik.com")
 
 router = APIRouter()
 _tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
