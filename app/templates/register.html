@@ -42,7 +42,11 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
   <div class="success">
     <strong>가입 신청 완료!</strong>
     관리자 승인 후 로그인이 가능합니다.<br>
+    {% if admin_contact %}
+    승인 문의: <strong>{{ admin_contact }}</strong>
+    {% else %}
     승인은 담당자에게 문의해주세요.
+    {% endif %}
   </div>
   <a href="/login" class="btn" style="display:block;text-align:center;text-decoration:none;line-height:1.8">로그인 페이지로</a>
   {% else %}

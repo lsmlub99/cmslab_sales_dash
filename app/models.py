@@ -83,3 +83,19 @@ class SalesRecord(Base):
     fw5 = Column(Numeric(15, 3), nullable=True)
 
     snapshot = relationship("Snapshot", back_populates="records")
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    display_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+
+class AppConfig(Base):
+    __tablename__ = "app_config"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)

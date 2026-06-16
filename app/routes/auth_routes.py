@@ -10,10 +10,29 @@ from ..auth import verify_password, hash_password, create_access_token, get_curr
 
 ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "wonik.com")
 
-TARGET_TEAMS = [
+# 폴백용 (DB 조회 실패 시)
+_FALLBACK_TEAMS = [
     "RBD1팀", "RBD2팀", "동북아MC팀", "Global사업팀",
     "GEC팀", "일본사업팀", "중국사업팀", "메디컬팀",
 ]
+
+
+def _get_teams(db) -> list:
+    try:
+        from ..models import Team
+        rows = db.query(Team).filter(Team.is_active == True).order_by(Team.display_order).all()
+        return [r.name for r in rows] or _FALLBACK_TEAMS
+    except Exception:
+        return _FALLBACK_TEAMS
+
+
+def _get_allowed_domain(db) -> str:
+    try:
+        from ..models import AppConfig
+        row = db.query(AppConfig).filter(AppConfig.key == "allowed_domain").first()
+        return row.value if row and row.value else ALLOWED_DOMAIN
+    except Exception:
+        return ALLOWED_DOMAIN
 
 router = APIRouter()
 _tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
@@ -55,10 +74,19 @@ async def login(
 
 
 @router.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request, current_user=Depends(get_current_user)):
+async def register_page(request: Request, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user:
         return RedirectResponse("/dashboard", status_code=302)
-    return templates.TemplateResponse("register.html", {"request": request, "error": None, "success": False, "domain": ALLOWED_DOMAIN, "teams": TARGET_TEAMS})
+    domain = _get_allowed_domain(db)
+    teams = _get_teams(db)
+    contact = ""
+    try:
+        from ..models import AppConfig
+        row = db.query(AppConfig).filter(AppConfig.key == "admin_contact").first()
+        contact = row.value if row else ""
+    except Exception:
+        pass
+    return templates.TemplateResponse("register.html", {"request": request, "error": None, "success": False, "domain": domain, "teams": teams, "admin_contact": contact})
 
 
 @router.post("/register")
@@ -71,11 +99,13 @@ async def register(
     password2: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    ctx = {"request": request, "success": False, "domain": ALLOWED_DOMAIN, "teams": TARGET_TEAMS}
+    domain = _get_allowed_domain(db)
+    teams = _get_teams(db)
+    ctx = {"request": request, "success": False, "domain": domain, "teams": teams, "admin_contact": ""}
 
-    if not email.lower().endswith(f"@{ALLOWED_DOMAIN}"):
-        return templates.TemplateResponse("register.html", {**ctx, "error": f"회사 이메일(@{ALLOWED_DOMAIN})만 가입 가능합니다."})
-    if not team or team not in TARGET_TEAMS:
+    if not email.lower().endswith(f"@{domain}"):
+        return templates.TemplateResponse("register.html", {**ctx, "error": f"회사 이메일(@{domain})만 가입 가능합니다."})
+    if not team or team not in teams:
         return templates.TemplateResponse("register.html", {**ctx, "error": "부서를 선택해주세요."})
     if password != password2:
         return templates.TemplateResponse("register.html", {**ctx, "error": "비밀번호가 일치하지 않습니다."})

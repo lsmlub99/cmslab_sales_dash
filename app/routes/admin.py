@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import require_admin, hash_password
-from ..models import User, Snapshot, SalesRecord
+from ..models import User, Snapshot, SalesRecord, Team, AppConfig
 from ..data.parser import (
     extract_records_from_excel,
     save_snapshot,
@@ -18,10 +18,24 @@ router = APIRouter(prefix="/admin")
 _tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
 templates = Jinja2Templates(directory=_tpl_dir)
 
-TARGET_TEAMS = [
-    "RBD1팀", "RBD2팀", "동북아MC팀", "Global사업팀",
-    "GEC팀", "일본사업팀", "중국사업팀", "메디컬팀",
-]
+
+def get_teams(db: Session):
+    rows = db.query(Team).filter(Team.is_active == True).order_by(Team.display_order).all()
+    return [r.name for r in rows]
+
+
+def get_config(db: Session, key: str, default: str = "") -> str:
+    row = db.query(AppConfig).filter(AppConfig.key == key).first()
+    return row.value if row else default
+
+
+def set_config(db: Session, key: str, value: str):
+    row = db.query(AppConfig).filter(AppConfig.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(AppConfig(key=key, value=value))
+    db.commit()
 
 
 # ─── 메인 페이지 ──────────────────────────────────────────────────────────────
@@ -41,13 +55,23 @@ async def admin_page(
     )
     users = db.query(User).order_by(User.created_at.desc()).all()
     info = get_active_snapshot_info(db)
+    all_teams = db.query(Team).order_by(Team.display_order).all()
+    config = {
+        "app_title": get_config(db, "app_title", "CMS Lab 매출 대시보드"),
+        "notice_enabled": get_config(db, "notice_enabled", "false"),
+        "notice_text": get_config(db, "notice_text", ""),
+        "allowed_domain": get_config(db, "allowed_domain", "wonik.com"),
+        "admin_contact": get_config(db, "admin_contact", ""),
+    }
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "user": current_user,
         "snapshots": snapshots,
         "users": users,
         "active_info": info,
-        "teams": TARGET_TEAMS,
+        "teams": get_teams(db),
+        "all_teams": all_teams,
+        "config": config,
         "msg": msg,
     })
 
@@ -263,6 +287,68 @@ async def manage_users(
         return {"ok": True}
 
     raise HTTPException(400, f"알 수 없는 action: {action}")
+
+
+# ─── 팀 관리 ─────────────────────────────────────────────────────────────────
+
+@router.post("/teams")
+async def manage_teams(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    body = await request.json()
+    action = body.get("action", "")
+
+    if action == "create":
+        name = body.get("name", "").strip()
+        if not name:
+            raise HTTPException(400, "팀 이름을 입력하세요.")
+        if db.query(Team).filter(Team.name == name).first():
+            raise HTTPException(400, "이미 존재하는 팀입니다.")
+        max_order = db.query(Team).count()
+        db.add(Team(name=name, display_order=max_order + 1, is_active=True))
+        db.commit()
+        return {"ok": True}
+
+    elif action == "update":
+        team = db.query(Team).filter(Team.id == body["id"]).first()
+        if not team:
+            raise HTTPException(404, "팀을 찾을 수 없습니다.")
+        if "name" in body:
+            team.name = body["name"]
+        if "display_order" in body:
+            team.display_order = body["display_order"]
+        if "is_active" in body:
+            team.is_active = body["is_active"]
+        db.commit()
+        return {"ok": True}
+
+    elif action == "delete":
+        team = db.query(Team).filter(Team.id == body["id"]).first()
+        if not team:
+            raise HTTPException(404, "팀을 찾을 수 없습니다.")
+        db.delete(team)
+        db.commit()
+        return {"ok": True}
+
+    raise HTTPException(400, f"알 수 없는 action: {action}")
+
+
+# ─── 시스템 설정 ──────────────────────────────────────────────────────────────
+
+@router.post("/config")
+async def update_config(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    body = await request.json()
+    allowed_keys = {"app_title", "notice_enabled", "notice_text", "allowed_domain", "admin_contact"}
+    for k, v in body.items():
+        if k in allowed_keys:
+            set_config(db, k, str(v))
+    return {"ok": True}
 
 
 # ─── 스케줄러 수동 트리거 ────────────────────────────────────────────────────

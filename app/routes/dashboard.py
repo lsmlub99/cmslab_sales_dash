@@ -42,17 +42,35 @@ body{padding-top:36px !important}
 """
 
 
-def _inject_nav(html: str, user: User) -> str:
+def _inject_nav(html: str, user: User, db=None) -> str:
+    from ..models import AppConfig
+
+    app_title = "CMS Lab 매출 대시보드"
+    notice_html = ""
+    try:
+        if db:
+            title_row = db.query(AppConfig).filter(AppConfig.key == "app_title").first()
+            if title_row and title_row.value:
+                app_title = title_row.value
+            notice_on = db.query(AppConfig).filter(AppConfig.key == "notice_enabled").first()
+            notice_text = db.query(AppConfig).filter(AppConfig.key == "notice_text").first()
+            if notice_on and notice_on.value == "true" and notice_text and notice_text.value:
+                notice_html = f"""<div style="background:#fef3c7;color:#92400e;padding:6px 20px;
+                    font-family:sans-serif;font-size:13px;text-align:center;border-bottom:1px solid #fde68a">
+                    📢 {notice_text.value}</div>"""
+    except Exception:
+        pass
+
     admin_link = '<a href="/admin">관리자</a>' if user.role == "admin" else ""
     nav = f"""{_NAV_STYLE}
 <div id="__cms-topnav">
-  <span class="nav-title">CMS Lab 매출 대시보드</span>
+  <span class="nav-title">{app_title}</span>
   <div class="nav-right">
     <span class="nav-user">{user.name or user.email}</span>
     {admin_link}
     <a href="/logout" class="nav-logout">로그아웃</a>
   </div>
-</div>"""
+</div>{notice_html}"""
     if "<body" in html:
         return html.replace("<body", nav + "<body", 1)
     return nav + html
@@ -72,7 +90,7 @@ async def dashboard(
 
     info = get_active_snapshot_info(db)
     base_date = info["base_date"] if info else ""
-    return HTMLResponse(_inject_nav(make_dashboard_html(records, base_date), current_user))
+    return HTMLResponse(_inject_nav(make_dashboard_html(records, base_date), current_user, db))
 
 
 @router.get("/compare", response_class=HTMLResponse)
@@ -89,4 +107,4 @@ async def compare(
 
     info = get_active_snapshot_info(db)
     base_date = info["base_date"] if info else ""
-    return HTMLResponse(_inject_nav(make_compare_html(records, base_date), current_user))
+    return HTMLResponse(_inject_nav(make_compare_html(records, base_date), current_user, db))

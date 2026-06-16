@@ -73,6 +73,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-upload">📂 Excel 업로드</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-import">✏️ 직접 입력</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-users">👥 사용자 관리</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings">⚙️ 시스템 설정</button></li>
   </ul>
 
   <div class="tab-content">
@@ -337,6 +338,89 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       </div>
     </div>
 
+    <!-- ── 탭4: 시스템 설정 ────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-settings">
+
+      <!-- 공지사항 -->
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-3">📢 공지사항 배너</h6>
+        <p class="text-muted mb-3" style="font-size:12px">대시보드 상단에 공지 메시지를 표시합니다.</p>
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="notice-enabled"
+              {{ 'checked' if config.notice_enabled == 'true' else '' }}>
+            <label class="form-check-label" for="notice-enabled">공지 표시 ON</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">공지 내용</label>
+          <input type="text" id="notice-text" class="form-control" placeholder="예: 6월 3주차 데이터 업로드 완료"
+            value="{{ config.notice_text }}">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveNotice()">저장</button>
+        <span id="notice-msg" class="text-success ms-2 fw-bold" style="font-size:13px;display:none"></span>
+      </div>
+
+      <!-- 팀 관리 -->
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-3">🏢 팀 목록 관리</h6>
+        <div class="d-flex gap-2 mb-3">
+          <input type="text" id="new-team-name" class="form-control form-control-sm" placeholder="새 팀 이름" style="max-width:200px">
+          <button class="btn btn-outline-primary btn-sm" onclick="addTeam()">추가</button>
+          <span id="team-msg" class="text-success ms-2 fw-bold align-self-center" style="font-size:13px;display:none"></span>
+        </div>
+        <table class="table table-sm" id="team-table">
+          <thead><tr><th>순서</th><th>팀 이름</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody>
+          {% for t in all_teams %}
+          <tr id="trow-{{ t.id }}">
+            <td>{{ t.display_order }}</td>
+            <td>{{ t.name }}</td>
+            <td>
+              {% if t.is_active %}
+              <span class="badge bg-success">활성</span>
+              {% else %}
+              <span class="badge bg-secondary">비활성</span>
+              {% endif %}
+            </td>
+            <td>
+              <button class="btn btn-outline-warning btn-sm py-0 px-2"
+                onclick="toggleTeam({{ t.id }}, {{ 'false' if t.is_active else 'true' }})">
+                {{ '숨기기' if t.is_active else '표시' }}
+              </button>
+              <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="deleteTeam({{ t.id }})">삭제</button>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 시스템 설정 -->
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-3">🔧 시스템 설정</h6>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">앱 표시명</label>
+            <input type="text" id="cfg-app-title" class="form-control" value="{{ config.app_title }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">허용 이메일 도메인</label>
+            <input type="text" id="cfg-domain" class="form-control" value="{{ config.allowed_domain }}" placeholder="wonik.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">관리자 연락처 <span class="text-muted" style="font-size:11px">(회원가입 완료 화면에 표시)</span></label>
+            <input type="text" id="cfg-contact" class="form-control" value="{{ config.admin_contact }}" placeholder="admin@wonik.com">
+          </div>
+        </div>
+        <div class="mt-3">
+          <button class="btn btn-primary btn-sm" onclick="saveConfig()">저장</button>
+          <span id="cfg-msg" class="text-success ms-2 fw-bold" style="font-size:13px;display:none"></span>
+        </div>
+      </div>
+
+    </div>
+
   </div><!-- tab-content -->
 </div><!-- container -->
 
@@ -450,6 +534,66 @@ async function toggleActive(userId, newState) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ action: 'update', id: userId, is_active: newState }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+// ── 시스템 설정 ──────────────────────────────────────────────────────────────
+async function saveNotice() {
+  const res = await fetch('/admin/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      notice_enabled: document.getElementById('notice-enabled').checked ? 'true' : 'false',
+      notice_text: document.getElementById('notice-text').value,
+    }),
+  });
+  const msg = document.getElementById('notice-msg');
+  if ((await res.json()).ok) { msg.textContent = '✅ 저장됨'; msg.style.display='inline'; setTimeout(()=>msg.style.display='none',2500); }
+}
+
+async function saveConfig() {
+  const res = await fetch('/admin/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      app_title: document.getElementById('cfg-app-title').value,
+      allowed_domain: document.getElementById('cfg-domain').value,
+      admin_contact: document.getElementById('cfg-contact').value,
+    }),
+  });
+  const msg = document.getElementById('cfg-msg');
+  if ((await res.json()).ok) { msg.textContent = '✅ 저장됨'; msg.style.display='inline'; setTimeout(()=>msg.style.display='none',2500); }
+}
+
+async function addTeam() {
+  const name = document.getElementById('new-team-name').value.trim();
+  if (!name) { alert('팀 이름을 입력하세요.'); return; }
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'create', name }),
+  });
+  const data = await res.json();
+  if (data.ok) { location.reload(); }
+  else { alert(data.detail || '오류'); }
+}
+
+async function toggleTeam(id, newState) {
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id, is_active: newState }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+async function deleteTeam(id) {
+  if (!confirm('팀을 삭제하시겠습니까? 해당 팀 사용자 권한에도 영향을 줄 수 있습니다.')) return;
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'delete', id }),
   });
   if ((await res.json()).ok) location.reload();
 }
