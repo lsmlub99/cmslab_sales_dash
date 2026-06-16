@@ -96,10 +96,18 @@ def save_snapshot(
     uploaded_by_id: Optional[int] = None,
     task_id: Optional[str] = None,
 ):
-    """기존 active 스냅샷 비활성화 → 새 스냅샷 + 레코드 청크 단위 bulk insert."""
+    """기존 active 스냅샷 비활성화 + 이전 records 삭제 → 새 스냅샷 + 청크 단위 bulk insert.
+    같은 파일을 여러 번 올려도 records가 중복 누적되지 않도록 이전 데이터를 먼저 정리한다.
+    Snapshot 행(이력 메타)은 유지하고 SalesRecord만 삭제해 스토리지를 절약한다.
+    """
     from ..models import Snapshot, SalesRecord
 
-    db.query(Snapshot).filter(Snapshot.is_active == True).update({"is_active": False})
+    # 이전 활성 스냅샷의 records 삭제 (Snapshot 행은 이력용으로 유지)
+    old_ids = [s.id for s in db.query(Snapshot.id).filter(Snapshot.is_active == True).all()]
+    if old_ids:
+        db.query(SalesRecord).filter(SalesRecord.snapshot_id.in_(old_ids)).delete(synchronize_session=False)
+        db.query(Snapshot).filter(Snapshot.id.in_(old_ids)).update({"is_active": False}, synchronize_session=False)
+        db.commit()
 
     snapshot = Snapshot(
         week_label=week_label,
