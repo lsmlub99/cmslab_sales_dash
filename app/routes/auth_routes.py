@@ -10,6 +10,11 @@ from ..auth import verify_password, hash_password, create_access_token, get_curr
 
 ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "wonik.com")
 
+TARGET_TEAMS = [
+    "RBD1팀", "RBD2팀", "동북아MC팀", "Global사업팀",
+    "GEC팀", "일본사업팀", "중국사업팀", "메디컬팀",
+]
+
 router = APIRouter()
 _tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
 templates = Jinja2Templates(directory=_tpl_dir)
@@ -53,7 +58,7 @@ async def login(
 async def register_page(request: Request, current_user=Depends(get_current_user)):
     if current_user:
         return RedirectResponse("/dashboard", status_code=302)
-    return templates.TemplateResponse("register.html", {"request": request, "error": None, "success": False, "domain": ALLOWED_DOMAIN})
+    return templates.TemplateResponse("register.html", {"request": request, "error": None, "success": False, "domain": ALLOWED_DOMAIN, "teams": TARGET_TEAMS})
 
 
 @router.post("/register")
@@ -61,43 +66,34 @@ async def register(
     request: Request,
     name: str = Form(...),
     email: str = Form(...),
+    team: str = Form(""),
     password: str = Form(...),
     password2: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    ctx = {"request": request, "success": False, "domain": ALLOWED_DOMAIN, "teams": TARGET_TEAMS}
+
     if not email.lower().endswith(f"@{ALLOWED_DOMAIN}"):
-        return templates.TemplateResponse("register.html", {
-            "request": request,
-            "error": f"회사 이메일(@{ALLOWED_DOMAIN})만 가입 가능합니다.",
-            "success": False, "domain": ALLOWED_DOMAIN,
-        })
+        return templates.TemplateResponse("register.html", {**ctx, "error": f"회사 이메일(@{ALLOWED_DOMAIN})만 가입 가능합니다."})
+    if not team or team not in TARGET_TEAMS:
+        return templates.TemplateResponse("register.html", {**ctx, "error": "부서를 선택해주세요."})
     if password != password2:
-        return templates.TemplateResponse("register.html", {
-            "request": request, "error": "비밀번호가 일치하지 않습니다.",
-            "success": False, "domain": ALLOWED_DOMAIN,
-        })
+        return templates.TemplateResponse("register.html", {**ctx, "error": "비밀번호가 일치하지 않습니다."})
     if len(password) < 8:
-        return templates.TemplateResponse("register.html", {
-            "request": request, "error": "비밀번호는 8자 이상이어야 합니다.",
-            "success": False, "domain": ALLOWED_DOMAIN,
-        })
+        return templates.TemplateResponse("register.html", {**ctx, "error": "비밀번호는 8자 이상이어야 합니다."})
     if db.query(User).filter(User.email == email).first():
-        return templates.TemplateResponse("register.html", {
-            "request": request, "error": "이미 등록된 이메일입니다.",
-            "success": False, "domain": ALLOWED_DOMAIN,
-        })
+        return templates.TemplateResponse("register.html", {**ctx, "error": "이미 등록된 이메일입니다."})
 
     db.add(User(
         email=email,
         hashed_password=hash_password(password),
         name=name.strip(),
         role="viewer",
+        allowed_teams=[team],
         is_active=False,
     ))
     db.commit()
-    return templates.TemplateResponse("register.html", {
-        "request": request, "error": None, "success": True, "domain": ALLOWED_DOMAIN,
-    })
+    return templates.TemplateResponse("register.html", {**ctx, "error": None, "success": True})
 
 
 @router.get("/logout")

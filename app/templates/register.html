@@ -60,6 +60,15 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
       <p class="hint">@{{ domain }} 도메인만 가입 가능합니다</p>
     </div>
     <div class="field">
+      <label for="team">소속 부서</label>
+      <select id="team" name="team" required style="width:100%;border:1px solid #d1d5db;border-radius:7px;padding:10px 12px;font-size:14px;outline:none;background:#fff;color:#374151">
+        <option value="">— 부서 선택 —</option>
+        {% for t in teams %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
       <label for="password">비밀번호</label>
       <input type="password" id="password" name="password" placeholder="8자 이상" required minlength="8">
     </div>

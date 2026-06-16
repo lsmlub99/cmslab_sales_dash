@@ -231,12 +231,20 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       <div class="card p-4 mb-4 border-warning">
         <h6 class="fw-bold mb-3 text-warning">⏳ 승인 대기 ({{ pending | length }}명)</h6>
         <table class="table table-sm table-hover">
-          <thead><tr><th>이름</th><th>이메일</th><th>가입일시</th><th>처리</th></tr></thead>
+          <thead><tr><th>이름</th><th>이메일</th><th>신청 부서</th><th>가입일시</th><th>처리</th></tr></thead>
           <tbody>
           {% for u in pending %}
           <tr>
             <td>{{ u.name or '—' }}</td>
             <td>{{ u.email }}</td>
+            <td>
+              <select id="pteam-{{ u.id }}" class="form-select form-select-sm" style="min-width:120px">
+                {% for t in teams %}
+                <option value="{{ t }}" {{ 'selected' if u.allowed_teams and t in u.allowed_teams else '' }}>{{ t }}</option>
+                {% endfor %}
+                <option value="__all__" {{ 'selected' if not u.allowed_teams else '' }}>전체 열람</option>
+              </select>
+            </td>
             <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
             <td>
               <button class="btn btn-success btn-sm py-0 px-3 me-1"
@@ -425,10 +433,13 @@ async function createUser() {
 
 async function approveUser(userId) {
   if (!confirm('이 사용자를 승인하시겠습니까?')) return;
+  const teamSel = document.getElementById(`pteam-${userId}`);
+  const teamVal = teamSel ? teamSel.value : '__all__';
+  const allowed_teams = teamVal === '__all__' ? null : [teamVal];
   const res = await fetch('/admin/users', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ action: 'update', id: userId, is_active: true }),
+    body: JSON.stringify({ action: 'update', id: userId, is_active: true, allowed_teams }),
   });
   if ((await res.json()).ok) location.reload();
 }
