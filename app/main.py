@@ -54,3 +54,8 @@ app.include_router(admin.router)
 @app.get("/")
 async def root():
     return RedirectResponse("/dashboard")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
