@@ -18,6 +18,11 @@ input{width:100%;border:1px solid #d1d5db;border-radius:7px;padding:10px 12px;
       font-size:14px;outline:none;transition:border .2s}
 input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
 .field{margin-bottom:16px}
+.email-status{font-size:12px;margin-top:5px;padding:5px 8px;border-radius:5px;display:none}
+.email-status.ok{display:block;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0}
+.email-status.err{display:block;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca}
+.email-status.warn{display:block;color:#92400e;background:#fffbeb;border:1px solid #fde68a}
+.verify-note{font-size:11px;color:#6b7280;margin-top:4px;display:flex;align-items:center;gap:4px}
 .btn{width:100%;background:#1a56a0;color:#fff;border:none;border-radius:7px;
      padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s;margin-top:4px}
 .btn:hover{background:#154080}
@@ -66,8 +71,15 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
     </div>
     <div class="field">
       <label for="email">이메일</label>
-      <input type="email" id="email" name="email" placeholder="example@{{ domain }}" required>
-      <p class="hint">@{{ domain }} 도메인만 가입 가능합니다</p>
+      <input type="email" id="email" name="email" placeholder="example@{{ domain }}" required autocomplete="off">
+      <div id="email-status" class="email-status"></div>
+      <p class="verify-note">
+        <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style="color:#1a56a0;flex-shrink:0">
+          <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
+          <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
+        </svg>
+        가입 후 이메일로 인증 링크가 발송됩니다
+      </p>
     </div>
     <div class="field">
       <label for="team">소속 부서</label>
@@ -86,8 +98,59 @@ input:focus{border-color:#1a56a0;box-shadow:0 0 0 3px rgba(26,86,160,.12)}
       <label for="password2">비밀번호 확인</label>
       <input type="password" id="password2" name="password2" placeholder="비밀번호 재입력" required>
     </div>
-    <button class="btn" type="submit">가입 신청</button>
+    <button class="btn" id="submit-btn" type="submit">가입 신청</button>
   </form>
+  <script>
+  (function(){
+    var emailInput = document.getElementById('email');
+    var statusBox  = document.getElementById('email-status');
+    var submitBtn  = document.getElementById('submit-btn');
+    var timer = null;
+    var lastEmail = '';
+    var emailOk = true;
+
+    function check(email) {
+      if (!email) { statusBox.className='email-status'; statusBox.textContent=''; emailOk=true; return; }
+      fetch('/check-email?email=' + encodeURIComponent(email))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (email !== emailInput.value) return;
+          statusBox.textContent = d.message || '';
+          if (d.available) {
+            statusBox.className = 'email-status ok';
+            emailOk = true;
+          } else if (d.reason === 'unverified') {
+            statusBox.className = 'email-status warn';
+            emailOk = true;   // 재발송 허용
+          } else {
+            statusBox.className = 'email-status err';
+            emailOk = false;
+          }
+        })
+        .catch(function(){ statusBox.className='email-status'; emailOk=true; });
+    }
+
+    emailInput.addEventListener('input', function(){
+      var v = this.value.trim();
+      if (v === lastEmail) return;
+      lastEmail = v;
+      statusBox.className = 'email-status';
+      statusBox.textContent = '';
+      clearTimeout(timer);
+      timer = setTimeout(function(){ check(v); }, 500);
+    });
+
+    emailInput.addEventListener('blur', function(){
+      clearTimeout(timer);
+      var v = this.value.trim();
+      if (v) check(v);
+    });
+
+    document.querySelector('form').addEventListener('submit', function(e){
+      if (!emailOk) { e.preventDefault(); alert('이미 등록된 이메일입니다.'); }
+    });
+  })();
+  </script>
   <div class="link-row">
     이미 계정이 있으신가요? <a href="/login">로그인</a>
   </div>

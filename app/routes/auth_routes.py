@@ -166,6 +166,20 @@ async def verify_email(request: Request, token: str, db: Session = Depends(get_d
     return templates.TemplateResponse("verify_email.html", {"request": request, "success": True, "name": user.name})
 
 
+@router.get("/check-email")
+async def check_email(email: str, db: Session = Depends(get_db)):
+    """이메일 사용 가능 여부 AJAX 체크."""
+    domain = _get_allowed_domain(db)
+    if not email.lower().endswith(f"@{domain}"):
+        return {"available": False, "reason": "domain", "message": f"@{domain} 도메인만 가입 가능합니다"}
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        if not existing.email_verified:
+            return {"available": False, "reason": "unverified", "message": "인증 미완료 계정입니다. 가입 신청하면 인증 메일을 재발송합니다"}
+        return {"available": False, "reason": "taken", "message": "이미 등록된 이메일입니다"}
+    return {"available": True, "message": "사용 가능한 이메일입니다"}
+
+
 @router.get("/logout")
 async def logout():
     response = RedirectResponse("/login", status_code=302)
