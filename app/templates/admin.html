@@ -235,12 +235,19 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       <div class="card p-4 mb-4 border-warning">
         <h6 class="fw-bold mb-3 text-warning">⏳ 승인 대기 ({{ pending | length }}명)</h6>
         <table class="table table-sm table-hover">
-          <thead><tr><th>이름</th><th>이메일</th><th>신청 부서</th><th>가입일시</th><th>처리</th></tr></thead>
+          <thead><tr><th>이름</th><th>이메일</th><th>인증</th><th>신청 부서</th><th>가입일시</th><th>처리</th></tr></thead>
           <tbody>
           {% for u in pending %}
           <tr>
             <td>{{ u.name or '—' }}</td>
             <td>{{ u.email }}</td>
+            <td>
+              {% if u.email_verified %}
+              <span class="badge bg-success">인증됨</span>
+              {% else %}
+              <span class="badge bg-warning text-dark">미인증</span>
+              {% endif %}
+            </td>
             <td>
               <select id="pteam-{{ u.id }}" class="form-select form-select-sm" style="min-width:120px">
                 {% for t in teams %}

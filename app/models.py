@@ -35,6 +35,8 @@ class User(Base):
     role = Column(String(20), default="viewer")         # 'admin' | 'viewer'
     allowed_teams = Column(TextList, nullable=True)     # NULL = 전체 열람
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=False)
+    verification_token = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     snapshots = relationship("Snapshot", back_populates="uploader")
