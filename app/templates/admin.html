@@ -258,8 +258,14 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             </td>
             <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
             <td>
+              {% if u.email_verified %}
               <button class="btn btn-success btn-sm py-0 px-3 me-1"
-                onclick="approveUser({{ u.id }})">승인</button>
+                onclick="approveUser({{ u.id }}, true)">승인</button>
+              {% else %}
+              <button class="btn btn-outline-secondary btn-sm py-0 px-3 me-1"
+                title="이메일 미인증 상태입니다"
+                onclick="approveUser({{ u.id }}, false)">승인</button>
+              {% endif %}
               <button class="btn btn-outline-danger btn-sm py-0 px-2"
                 onclick="deleteUser({{ u.id }})">거절</button>
             </td>
@@ -525,8 +531,11 @@ async function createUser() {
   }
 }
 
-async function approveUser(userId) {
-  if (!confirm('이 사용자를 승인하시겠습니까?')) return;
+async function approveUser(userId, verified) {
+  const msg = verified
+    ? '이 사용자를 승인하시겠습니까?'
+    : '⚠️ 이 사용자는 아직 이메일 인증을 완료하지 않았습니다.\n이메일 인증 없이 강제 승인하시겠습니까?';
+  if (!confirm(msg)) return;
   const teamSel = document.getElementById(`pteam-${userId}`);
   const teamVal = teamSel ? teamSel.value : '__all__';
   const allowed_teams = teamVal === '__all__' ? null : [teamVal];
