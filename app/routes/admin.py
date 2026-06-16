@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db, SessionLocal
 from ..auth import require_admin, hash_password
-from ..models import User, Snapshot, SalesRecord, Team, AppConfig
+from ..models import User, Snapshot, SalesRecord, Team, AppConfig, UploadHistory
 from ..data.parser import (
     extract_records_from_excel,
     save_snapshot,
@@ -52,8 +52,8 @@ async def admin_page(
     current_user: User = Depends(require_admin),
 ):
     snapshots = (
-        db.query(Snapshot)
-        .order_by(Snapshot.uploaded_at.desc())
+        db.query(UploadHistory)
+        .order_by(UploadHistory.uploaded_at.desc())
         .limit(10)
         .all()
     )
@@ -90,13 +90,13 @@ def _run_upload_task(task_id: str, tmp_path: str, label: str, user_id: int):
         records, base_date = extract_records_from_excel(tmp_path)
         _set_task(task_id, message=f"파싱 완료 ({len(records):,}건). DB 저장 시작...")
 
-        save_snapshot(db, records, label, base_date, user_id, task_id=task_id)
+        upserted = save_snapshot(db, records, label, base_date, user_id, task_id=task_id)
 
         _set_task(task_id, status="warming", message="대시보드 캐시 사전 생성 중...")
         prewarm_html_cache(db)
 
-        _set_task(task_id, status="done", progress=len(records), total=len(records),
-                  message=f"✅ 완료: {len(records):,}건 저장 ({label})")
+        _set_task(task_id, status="done", progress=upserted, total=upserted,
+                  message=f"✅ 완료: {upserted:,}건 upsert ({label})")
     except Exception as e:
         _set_task(task_id, status="error", message=f"❌ 오류: {e}")
     finally:

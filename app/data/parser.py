@@ -6,6 +6,7 @@ import os, sys, json, uuid, importlib.util
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 # 원본 스크립트 경로 (환경변수 또는 기본 상대 경로)
 DASHBOARD_SRC_PATH = os.getenv(
@@ -95,63 +96,76 @@ def save_snapshot(
     base_date: str,
     uploaded_by_id: Optional[int] = None,
     task_id: Optional[str] = None,
-):
-    """기존 active 스냅샷 비활성화 + 이전 records 삭제 → 새 스냅샷 + 청크 단위 bulk insert.
-    같은 파일을 여러 번 올려도 records가 중복 누적되지 않도록 이전 데이터를 먼저 정리한다.
-    Snapshot 행(이력 메타)은 유지하고 SalesRecord만 삭제해 스토리지를 절약한다.
+) -> int:
+    """영구 단일 스냅샷에 records를 UPSERT.
+    - 새 데이터: INSERT
+    - 동일 키(snapshot_id+team+channel+brand+code+month) 존재 시: UPDATE
+    - 다른 기간 데이터: 기존 데이터 유지하며 추가(누적)
+    UploadHistory에 이력을 남기고 upserted_count를 반환한다.
     """
-    from ..models import Snapshot, SalesRecord
+    from ..models import Snapshot, SalesRecord, UploadHistory
 
-    # 이전 활성 스냅샷의 records 삭제 (Snapshot 행은 이력용으로 유지)
-    old_ids = [s.id for s in db.query(Snapshot.id).filter(Snapshot.is_active == True).all()]
-    if old_ids:
-        db.query(SalesRecord).filter(SalesRecord.snapshot_id.in_(old_ids)).delete(synchronize_session=False)
-        db.query(Snapshot).filter(Snapshot.id.in_(old_ids)).update({"is_active": False}, synchronize_session=False)
-        db.commit()
-
-    snapshot = Snapshot(
-        week_label=week_label,
-        base_date=base_date,
-        uploaded_by=uploaded_by_id,
-        is_active=True,
-    )
-    db.add(snapshot)
-    db.flush()
+    # 영구 스냅샷: 단 하나만 유지. 없으면 생성, 있으면 메타만 업데이트.
+    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snapshot:
+        snapshot = Snapshot(week_label=week_label, base_date=base_date,
+                            uploaded_by=uploaded_by_id, is_active=True)
+        db.add(snapshot)
+        db.flush()
+    else:
+        snapshot.week_label = week_label
+        snapshot.base_date = base_date
+        db.flush()
 
     _FW = ["fw1", "fw2", "fw3", "fw4", "fw5"]
+    _VALUE_COLS = ["y2024", "y2025b", "y2025", "plan", "actual"] + _FW
     total = len(records)
     if task_id:
         _set_task(task_id, status="inserting", total=total, message=f"DB 저장 중 (0 / {total:,}건)")
 
+    upserted = 0
     for chunk_start in range(0, total, _CHUNK_SIZE):
         chunk = records[chunk_start: chunk_start + _CHUNK_SIZE]
-        db_records = []
+        rows = []
         for r in chunk:
-            fw_vals = {fw: r.get(fw) for fw in _FW}
-            db_records.append(SalesRecord(
-                snapshot_id=snapshot.id,
-                team=r.get("team", ""),
-                channel=r.get("channel", ""),
-                brand=r.get("brand", "기타"),
-                code=r.get("code", ""),
-                month=r.get("month", 0),
-                y2024=r.get("y2024", 0),
-                y2025b=r.get("y2025b", 0),
-                y2025=r.get("y2025", 0),
-                plan=r.get("plan", 0),
-                actual=r.get("actual", 0),
-                **fw_vals,
-            ))
-        db.bulk_save_objects(db_records)
+            rows.append({
+                "snapshot_id": snapshot.id,
+                "team": r.get("team", ""),
+                "channel": r.get("channel", ""),
+                "brand": r.get("brand", "기타"),
+                "code": r.get("code", ""),
+                "month": r.get("month", 0),
+                "y2024": r.get("y2024", 0),
+                "y2025b": r.get("y2025b", 0),
+                "y2025": r.get("y2025", 0),
+                "plan": r.get("plan", 0),
+                "actual": r.get("actual", 0),
+                **{fw: r.get(fw) for fw in _FW},
+            })
+
+        stmt = pg_insert(SalesRecord).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_sr_key",
+            set_={col: getattr(stmt.excluded, col) for col in _VALUE_COLS},
+        )
+        db.execute(stmt)
         db.commit()
 
+        upserted += len(chunk)
         done = min(chunk_start + _CHUNK_SIZE, total)
         if task_id:
             _set_task(task_id, progress=done, message=f"DB 저장 중 ({done:,} / {total:,}건)")
 
-    db.refresh(snapshot)
+    # 업로드 이력 기록
+    db.add(UploadHistory(
+        week_label=week_label,
+        base_date=base_date,
+        uploaded_by=uploaded_by_id,
+        upserted_count=upserted,
+    ))
+    db.commit()
     clear_html_cache()
-    return snapshot
+    return upserted
 
 
 # ─── DB 조회 ─────────────────────────────────────────────────────────────────

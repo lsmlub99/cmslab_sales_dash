@@ -116,7 +116,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       <div class="card p-4">
         <h6 class="fw-bold mb-3">업로드 이력 (최근 10건)</h6>
         <table class="table table-sm table-hover">
-          <thead><tr><th>#</th><th>레이블</th><th>기준일자</th><th>업로드 시각</th><th>상태</th></tr></thead>
+          <thead><tr><th>#</th><th>레이블</th><th>기준일자</th><th>업로드 시각</th><th>처리 건수</th></tr></thead>
           <tbody>
           {% for s in snapshots %}
           <tr>
@@ -124,13 +124,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             <td>{{ s.week_label }}</td>
             <td>{{ s.base_date }}</td>
             <td>{{ s.uploaded_at.strftime('%Y-%m-%d %H:%M') if s.uploaded_at else '—' }}</td>
-            <td>
-              {% if s.is_active %}
-              <span class="badge bg-success">활성</span>
-              {% else %}
-              <span class="badge bg-secondary">비활성</span>
-              {% endif %}
-            </td>
+            <td><span class="badge bg-primary">{{ '{:,}'.format(s.upserted_count) }}건</span></td>
           </tr>
           {% else %}
           <tr><td colspan="5" class="text-center text-muted">업로드 이력이 없습니다</td></tr>

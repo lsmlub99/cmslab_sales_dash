@@ -1,5 +1,5 @@
 import os, json, datetime
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, TypeDecorator, Index
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, TypeDecorator, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -85,9 +85,21 @@ class SalesRecord(Base):
     snapshot = relationship("Snapshot", back_populates="records")
 
     __table_args__ = (
+        UniqueConstraint("snapshot_id", "team", "channel", "brand", "code", "month", name="uq_sr_key"),
         Index("ix_sr_snapshot_team", "snapshot_id", "team"),
         Index("ix_sr_snapshot_month", "snapshot_id", "month"),
     )
+
+
+class UploadHistory(Base):
+    __tablename__ = "upload_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    week_label = Column(String(100), default="")
+    base_date = Column(String(50), default="")
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
+    upserted_count = Column(Integer, default=0)
 
 
 class Team(Base):
