@@ -520,7 +520,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
               {% else %}전체{% endif %}
               {% if u.id != user.id %}
               <button class="btn btn-outline-secondary py-0 px-1 ms-1" style="font-size:10px"
-                onclick="openTabModal({{ u.id }}, {{ u.allowed_tabs | tojson if u.allowed_tabs else 'null' }})">수정</button>
+                onclick='openTabModal({{ u.id }}, {{ u.allowed_tabs | tojson if u.allowed_tabs else "null" }})'>수정</button>
               {% endif %}
             </td>
             <td>
