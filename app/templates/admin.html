@@ -308,6 +308,59 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
     <!-- ── 탭3: 사용자 관리 ────────────────────────────────────── -->
     <div class="tab-pane fade" id="tab-users">
 
+      <!-- 그룹별 탭 접근 권한 -->
+      <div class="card p-4 mb-4">
+        <h6 class="fw-bold mb-1">그룹별 탭 접근 권한</h6>
+        <p class="text-muted mb-3" style="font-size:12px">
+          그룹에 체크된 탭만 해당 그룹 소속 사용자에게 허용됩니다.
+          모두 해제하면 전체 허용입니다. 개인 설정이 있으면 개인 설정이 우선 적용됩니다.
+        </p>
+        {% if all_teams %}
+        <table class="table table-sm table-bordered mb-0" style="max-width:600px">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:110px">그룹</th>
+              {% for tab in tabs %}
+              <th class="text-center" style="min-width:120px">{{ tab.label }}</th>
+              {% endfor %}
+              <th style="width:100px"></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for t in all_teams %}
+          <tr>
+            <td class="fw-semibold align-middle">
+              {{ t.name }}
+              {% if not t.allowed_tabs %}
+              <span class="badge bg-success bg-opacity-10 text-success border border-success ms-1" style="font-size:10px">전체</span>
+              {% endif %}
+            </td>
+            {% for tab in tabs %}
+            <td class="text-center align-middle">
+              <input class="form-check-input" type="checkbox"
+                     id="gtab-{{ t.id }}-{{ tab.id }}"
+                     style="width:18px;height:18px;cursor:pointer"
+                     {{ 'checked' if t.allowed_tabs and tab.id in t.allowed_tabs else '' }}>
+            </td>
+            {% endfor %}
+            <td class="align-middle">
+              <button class="btn btn-outline-primary btn-sm py-0 px-2"
+                      onclick="saveGroupTabs({{ t.id }})">저장</button>
+              {% if t.allowed_tabs %}
+              <button class="btn btn-link btn-sm py-0 ms-1 text-muted"
+                      style="font-size:11px;text-decoration:none"
+                      onclick="clearGroupTabs({{ t.id }})">전체허용</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0" style="font-size:13px">시스템 설정 탭에서 먼저 팀(그룹)을 추가하세요.</p>
+        {% endif %}
+      </div>
+
       <!-- 승인 대기 -->
       {% set pending = users | selectattr('is_active', 'equalto', false) | list %}
       {% if pending %}
@@ -898,7 +951,32 @@ async function clearTabPerms() {
   if ((await res.json()).ok) location.reload();
 }
 
-// ── 팀 탭 권한 설정 ──────────────────────────────────────────────────
+// ── 그룹별 탭 권한 (인라인 테이블) ────────────────────────────────────
+async function saveGroupTabs(teamId) {
+  const selected = _ALL_TABS.map(t => t.id).filter(id => {
+    const cb = document.getElementById('gtab-' + teamId + '-' + id);
+    return cb && cb.checked;
+  });
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: teamId, allowed_tabs: selected.length ? selected : null }),
+  });
+  if ((await res.json()).ok) location.reload();
+  else alert('저장 실패');
+}
+
+async function clearGroupTabs(teamId) {
+  if (!confirm('이 그룹의 탭 제한을 해제합니다. 소속 사용자는 전체 탭에 접근할 수 있게 됩니다.')) return;
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: teamId, allowed_tabs: null }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+// ── 팀 탭 권한 설정 (모달 — 시스템 설정 탭에서 사용) ────────────────────
 function openTeamTabModal(teamId, currentTabs) {
   document.getElementById('team-tab-modal-id').value = teamId;
   _ALL_TABS.forEach(tab => {
