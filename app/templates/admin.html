@@ -127,9 +127,9 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             <span class="badge bg-light text-secondary border" style="font-size:11px">단위: 백만원</span>
             <span class="badge bg-light text-secondary border" style="font-size:11px">1~{{ diff.base_month }}월 누적 실적 기준</span>
           </div>
-          <div class="mt-2 p-2 rounded" style="background:#f8f9fa;font-size:12px;color:#555">
-            💡 기준일({{ diff.curr_base_date }}) 기준으로 <strong>1~{{ diff.base_month }}월 누적 실적 합산</strong>을 비교합니다.
-            대시보드 Y2026 실적과 동일한 기준입니다.
+          <div class="mt-2 p-2 rounded" style="background:#f8f9fa;font-size:12px;color:#555;line-height:1.7">
+            📊 비교 항목: <strong>Y2026 실적 (actual)</strong> — 엑셀의 "실적" 컬럼 기준, 1~{{ diff.base_month }}월 누적 합산<br>
+            <span class="text-muted">두 값 모두 실제 매출 실적(기대/계획 아님)입니다. 주차마다 엑셀이 갱신되므로 같은 기간이라도 수치가 달라질 수 있습니다.</span>
           </div>
         </div>
 
@@ -137,8 +137,8 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
           <thead class="table-light">
             <tr>
               <th>팀</th>
-              <th class="text-end">이전 실적<br><small class="text-muted fw-normal">{{ diff.prev_label }}</small></th>
-              <th class="text-end">현재 실적<br><small class="text-muted fw-normal">{{ diff.curr_label }}</small></th>
+              <th class="text-end">실적 <span class="text-muted fw-normal" style="font-size:11px">({{ diff.prev_label }} 업로드 기준)</span></th>
+              <th class="text-end">실적 <span class="text-muted fw-normal" style="font-size:11px">({{ diff.curr_label }} 업로드 기준)</span></th>
               <th class="text-end">증감<br><small class="text-muted fw-normal">(백만원)</small></th>
             </tr>
           </thead>
