@@ -117,12 +117,30 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       <div class="card p-4 mb-4 border-primary border-opacity-50">
         <div class="mb-3">
           <h6 class="fw-bold mb-1">최근 업데이트 변경사항</h6>
-          <small class="text-muted">{{ diff.prev_label }}({{ diff.prev_base_date }}) → {{ diff.curr_label }}({{ diff.curr_base_date }})</small>
+          <div class="d-flex align-items-center gap-3 flex-wrap mt-1">
+            <span class="text-muted" style="font-size:13px">
+              <span class="badge bg-light text-dark border">{{ diff.prev_label }}</span>
+              <span class="mx-1 text-muted">→</span>
+              <span class="badge bg-primary">{{ diff.curr_label }}</span>
+              <span class="text-muted ms-1">(기준일: {{ diff.prev_base_date }} → {{ diff.curr_base_date }})</span>
+            </span>
+            <span class="badge bg-light text-secondary border" style="font-size:11px">단위: 백만원</span>
+            <span class="badge bg-light text-secondary border" style="font-size:11px">Y2026 연간 실적 합계 기준 (1~12월)</span>
+          </div>
+          <div class="mt-2 p-2 rounded" style="background:#f8f9fa;font-size:12px;color:#555">
+            💡 두 주차 간 <strong>팀별 Y2026 실적(1~12월 합산)</strong>이 얼마나 바뀌었는지 보여줍니다.
+            실적이 입력되지 않은 미래 월은 0으로 집계됩니다.
+          </div>
         </div>
 
         <table class="table table-sm table-hover mb-2">
           <thead class="table-light">
-            <tr><th>팀</th><th class="text-end">이전 실적</th><th class="text-end">현재 실적</th><th class="text-end">증감</th></tr>
+            <tr>
+              <th>팀</th>
+              <th class="text-end">이전 실적<br><small class="text-muted fw-normal">{{ diff.prev_label }}</small></th>
+              <th class="text-end">현재 실적<br><small class="text-muted fw-normal">{{ diff.curr_label }}</small></th>
+              <th class="text-end">증감<br><small class="text-muted fw-normal">(백만원)</small></th>
+            </tr>
           </thead>
           <tbody>
           {% for r in diff.rows %}
@@ -132,25 +150,31 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             <td class="text-end">{{ '{:,.0f}'.format(r.curr) }}</td>
             <td class="text-end {% if r.diff > 0 %}text-success{% elif r.diff < 0 %}text-danger{% endif %}">
               {% if r.diff > 0 %}+{% endif %}{{ '{:,.0f}'.format(r.diff) }}
+              {% if r.prev > 0 %}
+              <small class="ms-1">({% if r.diff >= 0 %}+{% endif %}{{ '{:.1f}'.format(r.diff / r.prev * 100) }}%)</small>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
           </tbody>
           <tfoot class="fw-bold">
             <tr class="table-light">
-              <td>전사</td>
+              <td>전사 합계</td>
               <td class="text-end">{{ '{:,.0f}'.format(diff.total_prev) }}</td>
               <td class="text-end">{{ '{:,.0f}'.format(diff.total_curr) }}</td>
               <td class="text-end {% if diff.total_diff > 0 %}text-success{% elif diff.total_diff < 0 %}text-danger{% endif %}">
                 {% if diff.total_diff > 0 %}+{% endif %}{{ '{:,.0f}'.format(diff.total_diff) }}
+                {% if diff.total_prev > 0 %}
+                <small class="ms-1">({% if diff.total_diff >= 0 %}+{% endif %}{{ '{:.1f}'.format(diff.total_diff / diff.total_prev * 100) }}%)</small>
+                {% endif %}
               </td>
             </tr>
           </tfoot>
         </table>
         {% if diff.new_months %}
-        <small class="text-info">
-          📅 신규 월 추가: {{ diff.new_months | join('월, ') }}월
-        </small>
+        <div class="mt-1 p-2 rounded border-start border-info border-3" style="background:#f0f9ff;font-size:12px">
+          📅 <strong>신규 월 데이터 추가:</strong> {{ diff.new_months | join('월, ') }}월 — 이번 업로드에서 처음으로 실적이 입력된 월입니다.
+        </div>
         {% endif %}
       </div>
       {% endif %}
