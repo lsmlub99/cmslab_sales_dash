@@ -400,7 +400,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
       <div class="card p-4">
         <h6 class="fw-bold mb-3">사용자 목록</h6>
         <table class="table table-sm table-hover" id="user-table">
-          <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>권한</th><th>열람 팀</th><th>접근 탭</th><th>상태</th><th>관리</th></tr></thead>
+          <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>권한</th><th>소속팀</th><th>접근 탭</th><th>상태</th><th>관리</th></tr></thead>
           <tbody>
           {% for u in users %}
           <tr id="urow-{{ u.id }}">
