@@ -69,7 +69,7 @@ _NAV_SCRIPT = f"""<script>
 </script>"""
 
 
-def _inject_nav(html: str, user: User, db=None) -> str:
+def _inject_nav(html: str, user: User, db=None, base_date: str = "") -> str:
     from ..models import AppConfig
 
     app_title = "CMS Lab 매출 대시보드"
@@ -88,11 +88,16 @@ def _inject_nav(html: str, user: User, db=None) -> str:
     except Exception:
         pass
 
+    date_badge = (
+        f'<span style="color:rgba(255,255,255,.6);font-size:12px">{base_date} 기준</span>'
+        if base_date else ""
+    )
     admin_link = '<a href="/admin">관리자</a>' if user.role == "admin" else ""
     nav = f"""{_NAV_STYLE}
 <div id="__cms-topnav">
   <span class="nav-title">{app_title}</span>
   <div class="nav-right">
+    {date_badge}
     <span class="nav-user">{user.name or user.email}</span>
     {admin_link}
     <a href="/logout" class="nav-logout">로그아웃</a>
@@ -128,7 +133,7 @@ async def dashboard(
         return HTMLResponse(_NO_DATA_HTML)
 
     html = get_cached_html("dashboard", info["id"], current_user.allowed_teams, records, info["base_date"])
-    return HTMLResponse(_inject_nav(html, current_user, db))
+    return HTMLResponse(_inject_nav(html, current_user, db, base_date=info["base_date"]))
 
 
 @router.get("/compare", response_class=HTMLResponse)
@@ -149,4 +154,4 @@ async def compare(
         return HTMLResponse(_NO_DATA_HTML)
 
     html = get_cached_html("compare", info["id"], current_user.allowed_teams, records, info["base_date"])
-    return HTMLResponse(_inject_nav(html, current_user, db))
+    return HTMLResponse(_inject_nav(html, current_user, db, base_date=info["base_date"]))
