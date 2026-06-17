@@ -13,21 +13,49 @@ from .auth import hash_password
 from .scheduler import start_scheduler
 
 
+def _migrate_schema():
+    """public 스키마 테이블을 sales_dashboard 스키마로 이동 (최초 1회, 이후 멱등).
+
+    - documents 등 public에 남아있는 기존 테이블은 건드리지 않음
+    - 이미 sales_dashboard에 있거나 public에 없으면 조용히 스킵
+    """
+    from .database import SessionLocal, SCHEMA
+    from sqlalchemy import text
+    db = SessionLocal()
+    tables = ["users", "snapshots", "sales_records", "upload_history", "teams", "app_config"]
+    try:
+        db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"))
+        db.commit()
+        for t in tables:
+            try:
+                db.execute(text(f"ALTER TABLE public.{t} SET SCHEMA {SCHEMA}"))
+                db.commit()
+                print(f"[Schema] public.{t} → {SCHEMA}.{t}")
+            except Exception:
+                db.rollback()   # 이미 이동됐거나 public에 없으면 무시
+        print(f"[Schema] {SCHEMA} 준비 완료")
+    except Exception as e:
+        print(f"[Schema] 오류: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _run_migrations():
     """기존 테이블에 누락된 컬럼을 추가한다 (멱등 실행 가능)."""
-    from .database import SessionLocal
+    from .database import SessionLocal, SCHEMA
     from sqlalchemy import text
     db = SessionLocal()
     try:
         db.execute(text(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE"
+            f"ALTER TABLE {SCHEMA}.users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE"
         ))
         db.execute(text(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(100)"
+            f"ALTER TABLE {SCHEMA}.users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(100)"
         ))
         # 관리자는 이메일 인증 없이 바로 로그인 가능해야 함
         db.execute(text(
-            "UPDATE users SET email_verified = TRUE WHERE role = 'admin'"
+            f"UPDATE {SCHEMA}.users SET email_verified = TRUE WHERE role = 'admin'"
         ))
         db.commit()
         print("[Migration] 완료")
@@ -87,7 +115,8 @@ def _create_first_admin():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    _migrate_schema()                      # public → sales_dashboard 이동 (최초 1회)
+    Base.metadata.create_all(bind=engine)  # sales_dashboard 스키마에 누락 테이블 생성
     _run_migrations()
     _create_first_admin()
     scheduler = start_scheduler()

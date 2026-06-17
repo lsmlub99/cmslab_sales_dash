@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = os.getenv(
@@ -14,9 +14,13 @@ if DATABASE_URL.startswith("postgres://"):
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# 앱 전용 스키마 — public.documents 등 기존 테이블과 분리
+SCHEMA = "sales_dashboard"
+
 
 class Base(DeclarativeBase):
-    pass
+    # MetaData에 schema 지정 → 모든 ORM DDL/DML이 sales_dashboard.tablename 사용
+    metadata = MetaData(schema=SCHEMA)
 
 
 def get_db():
