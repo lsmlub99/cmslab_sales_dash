@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models import User
+from ..models import User, Team
 from ..tab_registry import can_access_tab
 from ..data.parser import (
     get_active_records,
@@ -148,7 +148,8 @@ async def dashboard(
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
-    if not can_access_tab(current_user, "dashboard"):
+    group_team = db.query(Team).filter(Team.id == current_user.group_team_id).first() if current_user.group_team_id else None
+    if not can_access_tab(current_user, "dashboard", group_team):
         return HTMLResponse(_NO_ACCESS_HTML, status_code=403)
 
     info = get_active_snapshot_info(db, snapshot_id=snap)
@@ -176,7 +177,8 @@ async def compare(
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
-    if not can_access_tab(current_user, "compare"):
+    group_team = db.query(Team).filter(Team.id == current_user.group_team_id).first() if current_user.group_team_id else None
+    if not can_access_tab(current_user, "compare", group_team):
         return HTMLResponse(_NO_ACCESS_HTML, status_code=403)
 
     info = get_active_snapshot_info(db, snapshot_id=snap)

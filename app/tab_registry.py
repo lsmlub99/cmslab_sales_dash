@@ -9,8 +9,16 @@ TABS = [
 ]
 
 
-def can_access_tab(user, tab_id: str) -> bool:
-    """사용자가 해당 탭에 접근 가능한지 확인. allowed_tabs=NULL이면 전체 허용."""
-    if not user.allowed_tabs:
-        return True
-    return tab_id in user.allowed_tabs
+def can_access_tab(user, tab_id: str, group_team=None) -> bool:
+    """탭 접근 권한 확인.
+
+    우선순위: 개인 설정 → 그룹 기본값 → 전체 허용
+    - user.allowed_tabs 가 있으면 개인 설정 사용
+    - 없으면 group_team.allowed_tabs 확인
+    - 둘 다 없으면 전체 허용
+    """
+    if user.allowed_tabs is not None:
+        return tab_id in user.allowed_tabs
+    if group_team is not None and group_team.allowed_tabs is not None:
+        return tab_id in group_team.allowed_tabs
+    return True

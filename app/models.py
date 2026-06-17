@@ -38,13 +38,15 @@ class User(Base):
     name = Column(String(100), default="")
     role = Column(String(20), default="viewer")         # 'admin' | 'viewer'
     allowed_teams = Column(TextList, nullable=True)     # NULL = 전체 팀 열람
-    allowed_tabs  = Column(TextList, nullable=True)     # NULL = 전체 탭 접근
+    allowed_tabs  = Column(TextList, nullable=True)     # NULL = 그룹 기본값 상속 또는 전체
+    group_team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)  # 탭 권한 상속 그룹
     is_active = Column(Boolean, default=True)
     email_verified = Column(Boolean, default=False)
     verification_token = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    snapshots = relationship("Snapshot", back_populates="uploader")
+    snapshots  = relationship("Snapshot", back_populates="uploader")
+    group_team = relationship("Team", foreign_keys="[User.group_team_id]")
 
 
 class Snapshot(Base):
@@ -116,6 +118,7 @@ class Team(Base):
     name = Column(String(100), unique=True, nullable=False)
     display_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
+    allowed_tabs = Column(TextList, nullable=True)   # NULL = 이 그룹 소속 사용자는 전체 탭
 
 
 class AppConfig(Base):

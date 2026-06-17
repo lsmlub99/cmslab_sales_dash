@@ -331,6 +331,7 @@ async def manage_users(
             role=body.get("role", "viewer"),
             allowed_teams=body.get("allowed_teams") or None,
             allowed_tabs=body.get("allowed_tabs") or None,
+            group_team_id=body.get("group_team_id") or None,
             is_active=True,
             email_verified=True,   # 관리자 직접 추가 = 인증 불필요
         )
@@ -349,6 +350,8 @@ async def manage_users(
             user.allowed_teams = body["allowed_teams"] or None
         if "allowed_tabs" in body:
             user.allowed_tabs = body["allowed_tabs"] or None
+        if "group_team_id" in body:
+            user.group_team_id = body["group_team_id"] or None
         if body.get("password"):
             user.hashed_password = hash_password(body["password"])
         db.commit()
@@ -399,6 +402,8 @@ async def manage_teams(
             team.display_order = body["display_order"]
         if "is_active" in body:
             team.is_active = body["is_active"]
+        if "allowed_tabs" in body:
+            team.allowed_tabs = body["allowed_tabs"] or None
         db.commit()
         return {"ok": True}
 

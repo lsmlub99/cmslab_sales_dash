@@ -365,7 +365,13 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             </select>
           </div>
           <div class="col-md-2">
-            <button class="btn btn-primary btn-sm w-100" onclick="createUser()">추가</button>
+            <label class="form-label">소속 그룹 <span class="text-muted" style="font-size:10px">(탭 권한 상속)</span></label>
+            <select id="nu-group-team" class="form-select form-select-sm">
+              <option value="">없음</option>
+              {% for t in all_teams %}
+              <option value="{{ t.id }}">{{ t.name }}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
 
@@ -381,9 +387,12 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             {% endfor %}
           </div>
         </div>
-        <!-- 탭 접근 권한 선택 -->
+        <!-- 탭 접근 권한 (개인 설정 — 비워두면 소속 그룹 기본값 상속) -->
         <div class="mt-3">
-          <label class="form-label" style="font-size:12px">접근 가능한 탭 (미선택 = 전체 접근)</label>
+          <label class="form-label" style="font-size:12px">
+            접근 가능한 탭 개인 설정
+            <span class="text-muted">(미선택 = 소속 그룹 기본값 상속, 그룹도 없으면 전체)</span>
+          </label>
           <div class="d-flex flex-wrap gap-2" id="nu-tabs">
             {% for tab in tabs %}
             <div class="form-check form-check-inline">
@@ -393,14 +402,17 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
             {% endfor %}
           </div>
         </div>
-        <span id="nu-msg" class="text-success fw-bold mt-2 d-block" style="font-size:13px;display:none"></span>
+        <div class="mt-3">
+          <button class="btn btn-primary btn-sm" onclick="createUser()">추가</button>
+          <span id="nu-msg" class="text-success fw-bold ms-2" style="font-size:13px;display:none"></span>
+        </div>
       </div>
 
       <!-- 사용자 목록 -->
       <div class="card p-4">
         <h6 class="fw-bold mb-3">사용자 목록</h6>
         <table class="table table-sm table-hover" id="user-table">
-          <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>권한</th><th>소속팀</th><th>접근 탭</th><th>상태</th><th>관리</th></tr></thead>
+          <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>권한</th><th>소속팀</th><th>그룹</th><th>접근 탭</th><th>상태</th><th>관리</th></tr></thead>
           <tbody>
           {% for u in users %}
           <tr id="urow-{{ u.id }}">
@@ -420,11 +432,38 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
               {% endif %}
             </td>
             <td style="font-size:12px">{{ ', '.join(u.allowed_teams) if u.allowed_teams else '전체' }}</td>
+            <td>
+              {% if u.id != user.id %}
+              <select class="form-select form-select-sm py-0" style="min-width:90px;font-size:12px"
+                onchange="changeGroupTeam({{ u.id }}, this.value)">
+                <option value="">없음</option>
+                {% for t in all_teams %}
+                <option value="{{ t.id }}" {{ 'selected' if u.group_team_id == t.id else '' }}>{{ t.name }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <span style="font-size:12px">
+                {% if u.group_team_id %}
+                  {% set gt = all_teams | selectattr('id', 'equalto', u.group_team_id) | first %}
+                  {{ gt.name if gt else '—' }}
+                {% else %}없음{% endif %}
+              </span>
+              {% endif %}
+            </td>
             <td style="font-size:12px">
               {% if u.allowed_tabs %}
+                <span class="badge bg-info bg-opacity-10 text-info border border-info me-1" style="font-size:10px">개인</span>
                 {% set tab_labels = [] %}
                 {% for tab in tabs %}{% if tab.id in u.allowed_tabs %}{% set _ = tab_labels.append(tab.label) %}{% endif %}{% endfor %}
-                {{ ', '.join(tab_labels) if tab_labels else '전체' }}
+                {{ ', '.join(tab_labels) if tab_labels else '없음' }}
+              {% elif u.group_team_id %}
+                <span class="badge bg-secondary bg-opacity-10 text-secondary border me-1" style="font-size:10px">그룹상속</span>
+                {% set gt = all_teams | selectattr('id', 'equalto', u.group_team_id) | first %}
+                {% if gt and gt.allowed_tabs %}
+                  {% set gtab_labels = [] %}
+                  {% for tab in tabs %}{% if tab.id in gt.allowed_tabs %}{% set _ = gtab_labels.append(tab.label) %}{% endif %}{% endfor %}
+                  {{ ', '.join(gtab_labels) if gtab_labels else '없음' }}
+                {% else %}전체{% endif %}
               {% else %}전체{% endif %}
               {% if u.id != user.id %}
               <button class="btn btn-outline-secondary py-0 px-1 ms-1" style="font-size:10px"
@@ -485,13 +524,26 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
           <button class="btn btn-outline-primary btn-sm" onclick="addTeam()">추가</button>
           <span id="team-msg" class="text-success ms-2 fw-bold align-self-center" style="font-size:13px;display:none"></span>
         </div>
+        <p class="text-muted mb-2" style="font-size:12px">
+          각 팀의 탭 권한 기본값을 설정합니다. 소속 그룹이 지정된 사용자는 이 기본값을 상속받습니다.
+          개인 설정이 있는 사용자는 개인 설정이 우선 적용됩니다.
+        </p>
         <table class="table table-sm" id="team-table">
-          <thead><tr><th>순서</th><th>팀 이름</th><th>상태</th><th>관리</th></tr></thead>
+          <thead><tr><th>순서</th><th>팀 이름</th><th>탭 권한 기본값</th><th>상태</th><th>관리</th></tr></thead>
           <tbody>
           {% for t in all_teams %}
           <tr id="trow-{{ t.id }}">
             <td>{{ t.display_order }}</td>
             <td>{{ t.name }}</td>
+            <td style="font-size:12px">
+              {% if t.allowed_tabs %}
+                {% set tab_labels = [] %}
+                {% for tab in tabs %}{% if tab.id in t.allowed_tabs %}{% set _ = tab_labels.append(tab.label) %}{% endif %}{% endfor %}
+                {{ ', '.join(tab_labels) if tab_labels else '없음' }}
+              {% else %}<span class="text-muted">전체 (제한 없음)</span>{% endif %}
+              <button class="btn btn-outline-primary py-0 px-1 ms-1" style="font-size:10px"
+                onclick="openTeamTabModal({{ t.id }}, {{ t.allowed_tabs | tojson if t.allowed_tabs else 'null' }})">설정</button>
+            </td>
             <td>
               {% if t.is_active %}
               <span class="badge bg-success">활성</span>
@@ -608,6 +660,7 @@ function clearImportForm() {
 async function createUser() {
   const teams = [...document.querySelectorAll('.nu-team-cb:checked')].map(c => c.value);
   const tabsSelected = [...document.querySelectorAll('.nu-tab-cb:checked')].map(c => c.value);
+  const groupTeamVal = document.getElementById('nu-group-team').value;
   const body = {
     action: 'create',
     name: document.getElementById('nu-name').value.trim(),
@@ -616,6 +669,7 @@ async function createUser() {
     role: document.getElementById('nu-role').value,
     allowed_teams: teams.length ? teams : null,
     allowed_tabs: tabsSelected.length ? tabsSelected : null,
+    group_team_id: groupTeamVal ? parseInt(groupTeamVal) : null,
   };
   if (!body.email || !body.password) { alert('이메일과 비밀번호를 입력하세요.'); return; }
 
@@ -627,10 +681,20 @@ async function createUser() {
   const data = await res.json();
   if (data.ok) {
     document.getElementById('nu-msg').textContent = '✅ 사용자가 추가되었습니다. 페이지를 새로고침하세요.';
-    document.getElementById('nu-msg').style.display = 'block';
+    document.getElementById('nu-msg').style.display = 'inline';
   } else {
     alert('오류: ' + (data.detail || JSON.stringify(data)));
   }
+}
+
+async function changeGroupTeam(userId, teamIdStr) {
+  const group_team_id = teamIdStr ? parseInt(teamIdStr) : null;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: userId, group_team_id }),
+  });
+  if (!(await res.json()).ok) { alert('그룹 변경 실패'); location.reload(); }
 }
 
 async function approveUser(userId) {
@@ -800,7 +864,7 @@ async function deleteUser(userId) {
   if ((await res.json()).ok) location.reload();
 }
 
-// ── 탭 권한 수정 ──────────────────────────────────────────────────────
+// ── 개인 탭 권한 수정 ────────────────────────────────────────────────
 const _ALL_TABS = {{ tabs | tojson }};
 
 function openTabModal(userId, currentTabs) {
@@ -819,6 +883,38 @@ async function saveTabPerms() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ action: 'update', id: parseInt(userId), allowed_tabs: selected.length ? selected : null }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+async function clearTabPerms() {
+  if (!confirm('개인 설정을 초기화합니다. 이 사용자는 소속 그룹 기본값을 따르게 됩니다.')) return;
+  const userId = document.getElementById('tab-modal-user-id').value;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: parseInt(userId), allowed_tabs: null }),
+  });
+  if ((await res.json()).ok) location.reload();
+}
+
+// ── 팀 탭 권한 설정 ──────────────────────────────────────────────────
+function openTeamTabModal(teamId, currentTabs) {
+  document.getElementById('team-tab-modal-id').value = teamId;
+  _ALL_TABS.forEach(tab => {
+    const cb = document.getElementById('teamtabcb-' + tab.id);
+    if (cb) cb.checked = currentTabs ? currentTabs.includes(tab.id) : false;
+  });
+  new bootstrap.Modal(document.getElementById('team-tab-modal')).show();
+}
+
+async function saveTeamTabPerms() {
+  const teamId = document.getElementById('team-tab-modal-id').value;
+  const selected = _ALL_TABS.map(t => t.id).filter(id => document.getElementById('teamtabcb-' + id)?.checked);
+  const res = await fetch('/admin/teams', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: parseInt(teamId), allowed_tabs: selected.length ? selected : null }),
   });
   if ((await res.json()).ok) location.reload();
 }
@@ -852,16 +948,19 @@ async function executeSetActive() {
 }
 </script>
 
-<!-- 탭 권한 수정 모달 -->
+<!-- 개인 탭 권한 수정 모달 -->
 <div class="modal fade" id="tab-perm-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">탭 접근 권한 수정</h5>
+        <h5 class="modal-title">탭 접근 권한 수정 (개인)</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p class="text-muted mb-3 small">미선택 시 모든 탭에 접근 가능합니다.</p>
+        <p class="text-muted mb-3 small">
+          체크한 탭만 접근 허용합니다 (개인 설정).<br>
+          아무것도 선택하지 않고 저장하면 <strong>소속 그룹 기본값</strong>을 따릅니다.
+        </p>
         <input type="hidden" id="tab-modal-user-id">
         {% for tab in tabs %}
         <div class="form-check mb-2">
@@ -871,8 +970,39 @@ async function executeSetActive() {
         {% endfor %}
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm me-auto"
+          onclick="clearTabPerms()">그룹 기본값으로 초기화</button>
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
         <button type="button" class="btn btn-primary btn-sm" onclick="saveTabPerms()">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 팀 탭 권한 설정 모달 -->
+<div class="modal fade" id="team-tab-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">팀 탭 권한 기본값 설정</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3 small">
+          이 그룹 소속 사용자의 탭 접근 기본값을 설정합니다.<br>
+          미선택 시 전체 탭에 접근 가능합니다 (제한 없음).
+        </p>
+        <input type="hidden" id="team-tab-modal-id">
+        {% for tab in tabs %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="teamtabcb-{{ tab.id }}" value="{{ tab.id }}">
+          <label class="form-check-label" for="teamtabcb-{{ tab.id }}">{{ tab.label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveTeamTabPerms()">저장</button>
       </div>
     </div>
   </div>
