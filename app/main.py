@@ -53,6 +53,9 @@ def _run_migrations():
         db.execute(text(
             f"ALTER TABLE {SCHEMA}.users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(100)"
         ))
+        db.execute(text(
+            f"ALTER TABLE {SCHEMA}.users ADD COLUMN IF NOT EXISTS allowed_tabs TEXT"
+        ))
         # 관리자는 이메일 인증 없이 바로 로그인 가능해야 함
         db.execute(text(
             f"UPDATE {SCHEMA}.users SET email_verified = TRUE WHERE role = 'admin'"

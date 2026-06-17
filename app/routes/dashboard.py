@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..auth import get_current_user
 from ..models import User
+from ..tab_registry import can_access_tab
 from ..data.parser import (
     get_active_records,
     get_active_snapshot_info,
@@ -22,6 +23,14 @@ _NO_DATA_HTML = """
 <h2>데이터가 없습니다</h2>
 <p>관리자 패널에서 Excel 파일을 먼저 업로드해주세요.</p>
 <p><a href="/admin">관리자 패널로 이동</a></p>
+</body></html>
+"""
+
+_NO_ACCESS_HTML = """
+<html><body style="font-family:sans-serif;padding:40px">
+<h2>접근 권한이 없습니다</h2>
+<p>이 페이지에 대한 접근 권한이 없습니다. 관리자에게 문의하세요.</p>
+<p><a href="/dashboard">대시보드로 이동</a></p>
 </body></html>
 """
 
@@ -139,6 +148,8 @@ async def dashboard(
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
+    if not can_access_tab(current_user, "dashboard"):
+        return HTMLResponse(_NO_ACCESS_HTML, status_code=403)
 
     info = get_active_snapshot_info(db, snapshot_id=snap)
     if not info:
@@ -165,6 +176,8 @@ async def compare(
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
+    if not can_access_tab(current_user, "compare"):
+        return HTMLResponse(_NO_ACCESS_HTML, status_code=403)
 
     info = get_active_snapshot_info(db, snapshot_id=snap)
     if not info:

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db, SessionLocal
 from ..auth import require_admin, hash_password
 from ..models import User, Snapshot, SalesRecord, Team, AppConfig, UploadHistory
+from ..tab_registry import TABS
 from ..data.parser import (
     extract_records_from_excel,
     save_snapshot,
@@ -90,6 +91,7 @@ async def admin_page(
         "config": config,
         "msg": msg,
         "diff": diff,
+        "tabs": TABS,
     })
 
 
@@ -322,13 +324,13 @@ async def manage_users(
     if action == "create":
         if db.query(User).filter(User.email == body["email"]).first():
             raise HTTPException(400, "이미 존재하는 이메일입니다.")
-        teams = body.get("allowed_teams") or None
         user = User(
             email=body["email"],
             hashed_password=hash_password(body["password"]),
             name=body.get("name", ""),
             role=body.get("role", "viewer"),
-            allowed_teams=teams,
+            allowed_teams=body.get("allowed_teams") or None,
+            allowed_tabs=body.get("allowed_tabs") or None,
             is_active=True,
             email_verified=True,   # 관리자 직접 추가 = 인증 불필요
         )
@@ -345,6 +347,8 @@ async def manage_users(
                 setattr(user, field, body[field])
         if "allowed_teams" in body:
             user.allowed_teams = body["allowed_teams"] or None
+        if "allowed_tabs" in body:
+            user.allowed_tabs = body["allowed_tabs"] or None
         if body.get("password"):
             user.hashed_password = hash_password(body["password"])
         db.commit()

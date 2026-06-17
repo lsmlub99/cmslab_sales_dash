@@ -37,7 +37,8 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     name = Column(String(100), default="")
     role = Column(String(20), default="viewer")         # 'admin' | 'viewer'
-    allowed_teams = Column(TextList, nullable=True)     # NULL = 전체 열람
+    allowed_teams = Column(TextList, nullable=True)     # NULL = 전체 팀 열람
+    allowed_tabs  = Column(TextList, nullable=True)     # NULL = 전체 탭 접근
     is_active = Column(Boolean, default=True)
     email_verified = Column(Boolean, default=False)
     verification_token = Column(String(100), nullable=True)
