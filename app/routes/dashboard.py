@@ -49,6 +49,25 @@ body{{padding-top:{_NAV_HEIGHT}px !important}}
 </style>
 """
 
+# #pane-table top은 JS가 (hdrH + filterH + 8)로 계산하는데 nav 높이를 빠뜨림.
+# MutationObserver로 style 속성이 바뀔 때마다 nav 높이를 더해서 교정.
+_NAV_SCRIPT = f"""<script>
+(function(){{
+  var H = {_NAV_HEIGHT}, _lock = false;
+  var p = document.getElementById('pane-table');
+  if (!p) return;
+  new MutationObserver(function() {{
+    if (_lock) return;
+    var hdrH    = document.querySelector('.sticky-header')?.offsetHeight    ?? 44;
+    var filterH = document.querySelector('.sticky-filterbar')?.offsetHeight ?? 70;
+    var want = H + hdrH + filterH + 8;
+    if (parseInt(p.style.top, 10) !== want) {{
+      _lock = true; p.style.top = want + 'px'; _lock = false;
+    }}
+  }}).observe(p, {{attributes:true, attributeFilter:['style']}});
+}})();
+</script>"""
+
 
 def _inject_nav(html: str, user: User, db=None) -> str:
     from ..models import AppConfig
@@ -80,8 +99,15 @@ def _inject_nav(html: str, user: User, db=None) -> str:
   </div>
 </div>{notice_html}"""
     if "<body" in html:
-        return html.replace("<body", nav + "<body", 1)
-    return nav + html
+        html = html.replace("<body", nav + "<body", 1)
+    else:
+        html = nav + html
+    # </body> 직전에 #pane-table top 교정 스크립트 삽입
+    if "</body>" in html:
+        html = html.replace("</body>", _NAV_SCRIPT + "</body>", 1)
+    else:
+        html = html + _NAV_SCRIPT
+    return html
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
