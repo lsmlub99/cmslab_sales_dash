@@ -247,10 +247,18 @@ def get_upload_diff(db: Session) -> Optional[Dict]:
     if not prev:
         return None
 
+    # 기준일에서 월 추출 (예: "2026년 06월 12일" → 6)
+    import re
+    def _parse_base_month(base_date_str: str) -> int:
+        m = re.search(r'(\d{1,2})월', base_date_str)
+        return int(m.group(1)) if m else 12
+
+    base_month = _parse_base_month(curr.base_date)
+
     def _team_totals(snap_id: int) -> dict:
         rows = (
             db.query(SalesRecord.team, func.sum(SalesRecord.actual).label("total"))
-            .filter(SalesRecord.snapshot_id == snap_id)
+            .filter(SalesRecord.snapshot_id == snap_id, SalesRecord.month <= base_month)
             .group_by(SalesRecord.team)
             .all()
         )
@@ -259,11 +267,13 @@ def get_upload_diff(db: Session) -> Optional[Dict]:
     prev_totals = _team_totals(prev.id)
     curr_totals = _team_totals(curr.id)
 
-    # 신규로 actual 데이터가 생긴 월 찾기
+    # 신규로 actual 데이터가 생긴 월 찾기 (기준월 이내)
     def _active_months(snap_id: int) -> set:
         return set(
             r[0] for r in db.query(SalesRecord.month)
-            .filter(SalesRecord.snapshot_id == snap_id, SalesRecord.actual > 0)
+            .filter(SalesRecord.snapshot_id == snap_id,
+                    SalesRecord.actual > 0,
+                    SalesRecord.month <= base_month)
             .distinct().all()
         )
 
@@ -288,6 +298,7 @@ def get_upload_diff(db: Session) -> Optional[Dict]:
         "prev_label": prev.week_label,
         "curr_base_date": curr.base_date,
         "prev_base_date": prev.base_date,
+        "base_month": base_month,
         "new_months": new_months,
         "rows": rows,
         "total_prev": total_prev,

@@ -125,11 +125,11 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
               <span class="text-muted ms-1">(기준일: {{ diff.prev_base_date }} → {{ diff.curr_base_date }})</span>
             </span>
             <span class="badge bg-light text-secondary border" style="font-size:11px">단위: 백만원</span>
-            <span class="badge bg-light text-secondary border" style="font-size:11px">Y2026 연간 실적 합계 기준 (1~12월)</span>
+            <span class="badge bg-light text-secondary border" style="font-size:11px">1~{{ diff.base_month }}월 누적 실적 기준</span>
           </div>
           <div class="mt-2 p-2 rounded" style="background:#f8f9fa;font-size:12px;color:#555">
-            💡 두 주차 간 <strong>팀별 Y2026 실적(1~12월 합산)</strong>이 얼마나 바뀌었는지 보여줍니다.
-            실적이 입력되지 않은 미래 월은 0으로 집계됩니다.
+            💡 기준일({{ diff.curr_base_date }}) 기준으로 <strong>1~{{ diff.base_month }}월 누적 실적 합산</strong>을 비교합니다.
+            대시보드 Y2026 실적과 동일한 기준입니다.
           </div>
         </div>
 
