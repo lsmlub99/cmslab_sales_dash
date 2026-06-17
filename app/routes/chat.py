@@ -1,5 +1,5 @@
 """
-AI 챗봇 엔드포인트 — Claude API 연동
+AI 챗봇 엔드포인트 — OpenAI API 연동
 대시보드 현재 실적 데이터를 컨텍스트로 제공
 """
 import os, re
@@ -18,15 +18,15 @@ from ..models import User, Snapshot, SalesRecord
 router = APIRouter()
 
 ALLOWED_MODELS = {
-    "claude-haiku-4-5-20251001": "Haiku (빠름)",
-    "claude-sonnet-4-6": "Sonnet (정확)",
+    "gpt-4o-mini": "GPT-4o mini (빠름)",
+    "gpt-4o":      "GPT-4o (정확)",
 }
 
 
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[dict]] = None   # [{role, content}, ...]
-    model: str = "claude-haiku-4-5-20251001"
+    model: str = "gpt-4o-mini"
 
 
 # ── 컨텍스트 빌더 ─────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ def _build_sales_context(db: Session, allowed_teams: Optional[list]) -> str:
 
 @router.get("/chat/status")
 async def chat_status():
-    configured = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
     return {"configured": configured}
 
 
@@ -101,11 +101,11 @@ async def chat(
     if not current_user:
         raise HTTPException(401, "로그인이 필요합니다.")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
-        raise HTTPException(503, "ANTHROPIC_API_KEY가 설정되지 않았습니다. Render 환경변수를 확인하세요.")
+        raise HTTPException(503, "OPENAI_API_KEY가 설정되지 않았습니다. Render 환경변수를 확인하세요.")
 
-    model = req.model if req.model in ALLOWED_MODELS else "claude-haiku-4-5-20251001"
+    model = req.model if req.model in ALLOWED_MODELS else "gpt-4o-mini"
 
     sales_ctx = _build_sales_context(db, current_user.allowed_teams)
 
@@ -120,21 +120,22 @@ async def chat(
 - 비율/등락 포함해서 답변
 - 데이터에 없는 정보는 "데이터에 없음"으로 명확히"""
 
-    messages = list(req.history or [])[-20:]   # 최근 10 교환 (20개 메시지)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += list(req.history or [])[-20:]
     messages.append({"role": "user", "content": req.message})
 
     try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_key)
+        response = await client.chat.completions.create(
             model=model,
             max_tokens=1024,
-            system=system_prompt,
             messages=messages,
         )
-        reply = response.content[0].text
+        reply = response.choices[0].message.content
         return {"reply": reply, "model": model}
-    except anthropic.AuthenticationError:
-        raise HTTPException(503, "ANTHROPIC_API_KEY가 유효하지 않습니다.")
     except Exception as e:
-        raise HTTPException(500, f"AI 오류: {e}")
+        err = str(e)
+        if "authentication" in err.lower() or "api key" in err.lower():
+            raise HTTPException(503, "OPENAI_API_KEY가 유효하지 않습니다.")
+        raise HTTPException(500, f"AI 오류: {err}")

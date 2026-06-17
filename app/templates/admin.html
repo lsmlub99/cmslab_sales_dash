@@ -558,8 +558,8 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
           <div class="d-flex gap-2 align-items:center">
             <select id="ai-model" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);
               border-radius:5px;padding:3px 8px;font-size:12px;cursor:pointer;outline:none">
-              <option value="claude-haiku-4-5-20251001">Haiku (빠름)</option>
-              <option value="claude-sonnet-4-6">Sonnet (정확)</option>
+              <option value="gpt-4o-mini">GPT-4o mini (빠름)</option>
+              <option value="gpt-4o">GPT-4o (정확)</option>
             </select>
             <button onclick="aiClearChat()" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
               color:#fff;border-radius:5px;padding:3px 10px;font-size:12px;cursor:pointer">초기화</button>
@@ -588,7 +588,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
 
       <!-- AI 상태 표시 -->
       <div id="ai-status-bar" class="d-none alert alert-warning py-2 mb-3" style="font-size:13px">
-        ⚠️ <strong>ANTHROPIC_API_KEY</strong> 환경변수가 설정되지 않았습니다.
+        ⚠️ <strong>OPENAI_API_KEY</strong> 환경변수가 설정되지 않았습니다.
         Render 대시보드 → Environment Variables에서 추가하세요.
       </div>
     </div>
