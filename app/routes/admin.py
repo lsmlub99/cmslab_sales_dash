@@ -462,6 +462,42 @@ async def test_email(
         return JSONResponse({"ok": False, "error": str(e), "from": GMAIL_USER, "to": to})
 
 
+# ─── API Key 관리 ────────────────────────────────────────────────────────
+
+@router.get("/api-key")
+async def get_api_key(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    import secrets as _secrets
+    row = db.query(AppConfig).filter(AppConfig.key == "api_key").first()
+    if not row or not row.value:
+        key = _secrets.token_urlsafe(32)
+        if row:
+            row.value = key
+        else:
+            db.add(AppConfig(key="api_key", value=key))
+        db.commit()
+        return {"api_key": key}
+    return {"api_key": row.value}
+
+
+@router.post("/api-key")
+async def regen_api_key(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    import secrets as _secrets
+    new_key = _secrets.token_urlsafe(32)
+    row = db.query(AppConfig).filter(AppConfig.key == "api_key").first()
+    if row:
+        row.value = new_key
+    else:
+        db.add(AppConfig(key="api_key", value=new_key))
+    db.commit()
+    return {"api_key": new_key}
+
+
 # ─── 스케줄러 수동 트리거 ────────────────────────────────────────────────────
 
 @router.post("/trigger-update")

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .database import Base, engine
-from .routes import auth_routes, dashboard, admin
+from .routes import auth_routes, dashboard, admin, api, chat
 from .models import User
 from .auth import hash_password
 from .scheduler import start_scheduler
@@ -138,6 +138,8 @@ app = FastAPI(title="CMS Lab 매출 대시보드", lifespan=lifespan)
 app.include_router(auth_routes.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
+app.include_router(api.router)
+app.include_router(chat.router)
 
 
 @app.get("/")

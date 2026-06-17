@@ -1,0 +1,140 @@
+"""
+AI 챗봇 엔드포인트 — Claude API 연동
+대시보드 현재 실적 데이터를 컨텍스트로 제공
+"""
+import os, re
+from typing import Optional, List
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from ..database import get_db
+from ..auth import get_current_user
+from ..models import User, Snapshot, SalesRecord
+
+router = APIRouter()
+
+ALLOWED_MODELS = {
+    "claude-haiku-4-5-20251001": "Haiku (빠름)",
+    "claude-sonnet-4-6": "Sonnet (정확)",
+}
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = None   # [{role, content}, ...]
+    model: str = "claude-haiku-4-5-20251001"
+
+
+# ── 컨텍스트 빌더 ─────────────────────────────────────────────────────────────
+
+def _build_sales_context(db: Session, allowed_teams: Optional[list]) -> str:
+    snap = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not snap:
+        return "현재 업로드된 데이터가 없습니다."
+
+    m = re.search(r'(\d{1,2})월', snap.base_date)
+    base_month = int(m.group(1)) if m else 12
+
+    q = (
+        db.query(
+            SalesRecord.team,
+            SalesRecord.month,
+            func.sum(SalesRecord.actual).label("actual"),
+            func.sum(SalesRecord.plan).label("plan"),
+            func.sum(SalesRecord.y2025).label("y2025"),
+        )
+        .filter(SalesRecord.snapshot_id == snap.id, SalesRecord.month <= base_month)
+    )
+    if allowed_teams:
+        q = q.filter(SalesRecord.team.in_(allowed_teams))
+
+    rows = q.group_by(SalesRecord.team, SalesRecord.month).order_by(SalesRecord.team, SalesRecord.month).all()
+    if not rows:
+        return "접근 가능한 데이터가 없습니다."
+
+    by_team = defaultdict(list)
+    for r in rows:
+        by_team[r.team].append(r)
+
+    lines = [
+        f"기준: {snap.week_label} ({snap.base_date})",
+        f"누적 범위: 1~{base_month}월",
+        "",
+        "=== 팀별 Y2026 누적 실적 (백만원) ===",
+    ]
+
+    total_a = total_p = total_y = 0.0
+    for team in sorted(by_team):
+        team_rows = by_team[team]
+        a = sum(float(r.actual or 0) for r in team_rows)
+        p = sum(float(r.plan or 0) for r in team_rows)
+        y = sum(float(r.y2025 or 0) for r in team_rows)
+        ach = f"{a/p*100:.1f}%" if p else "N/A"
+        monthly = ", ".join(f"{r.month}월:{float(r.actual or 0):,.0f}" for r in sorted(team_rows, key=lambda x: x.month))
+        lines.append(f"[{team}] 실적:{a:,.0f} / 계획:{p:,.0f} (달성률:{ach}) / 전년동기:{y:,.0f}")
+        lines.append(f"  월별: {monthly}")
+        total_a += a; total_p += p; total_y += y
+
+    ach_total = f"{total_a/total_p*100:.1f}%" if total_p else "N/A"
+    lines.append(f"\n[전사합계] 실적:{total_a:,.0f} / 계획:{total_p:,.0f} (달성률:{ach_total}) / 전년동기:{total_y:,.0f}")
+    return "\n".join(lines)
+
+
+# ── 엔드포인트 ────────────────────────────────────────────────────────────────
+
+@router.get("/chat/status")
+async def chat_status():
+    configured = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    return {"configured": configured}
+
+
+@router.post("/chat")
+async def chat(
+    req: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    if not current_user:
+        raise HTTPException(401, "로그인이 필요합니다.")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(503, "ANTHROPIC_API_KEY가 설정되지 않았습니다. Render 환경변수를 확인하세요.")
+
+    model = req.model if req.model in ALLOWED_MODELS else "claude-haiku-4-5-20251001"
+
+    sales_ctx = _build_sales_context(db, current_user.allowed_teams)
+
+    system_prompt = f"""당신은 CMS Lab 매출 대시보드 AI 분석 어시스턴트입니다.
+현재 사용자: {current_user.name or current_user.email} ({'관리자' if current_user.role == 'admin' else '일반 사용자'})
+
+{sales_ctx}
+
+답변 규칙:
+- 한국어로 간결하게 답변 (3~5문장 이내 원칙, 복잡한 분석은 예외)
+- 수치는 백만원 단위 기준, 큰 수는 억원으로도 표기 (예: 50,510백만원 ≈ 약 505억원)
+- 비율/등락 포함해서 답변
+- 데이터에 없는 정보는 "데이터에 없음"으로 명확히"""
+
+    messages = list(req.history or [])[-20:]   # 최근 10 교환 (20개 메시지)
+    messages.append({"role": "user", "content": req.message})
+
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        response = await client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=messages,
+        )
+        reply = response.content[0].text
+        return {"reply": reply, "model": model}
+    except anthropic.AuthenticationError:
+        raise HTTPException(503, "ANTHROPIC_API_KEY가 유효하지 않습니다.")
+    except Exception as e:
+        raise HTTPException(500, f"AI 오류: {e}")
