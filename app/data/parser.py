@@ -97,27 +97,46 @@ def save_snapshot(
     uploaded_by_id: Optional[int] = None,
     task_id: Optional[str] = None,
 ) -> int:
-    """영구 단일 스냅샷에 records를 UPSERT.
-    - 새 데이터: INSERT
-    - 동일 키(snapshot_id+team+channel+brand+code+month) 존재 시: UPDATE
-    - 다른 기간 데이터: 기존 데이터 유지하며 추가(누적)
+    """업로드마다 새 Snapshot을 생성하고 이전 데이터를 복사한 뒤 UPSERT.
+    - 이전 Snapshot은 inactive로 보존 (롤백 가능)
+    - inactive Snapshot이 2개 이상이면 가장 오래된 것 삭제
     UploadHistory에 이력을 남기고 upserted_count를 반환한다.
     """
+    import datetime
+    from sqlalchemy import text
     from ..models import Snapshot, SalesRecord, UploadHistory
+    from ..database import SCHEMA
 
-    # 영구 스냅샷: 단 하나만 유지. 없으면 생성, 있으면 메타만 업데이트.
-    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
-    if not snapshot:
-        snapshot = Snapshot(week_label=week_label, base_date=base_date,
-                            uploaded_by=uploaded_by_id, is_active=True)
-        db.add(snapshot)
-        db.flush()
-    else:
-        import datetime
-        snapshot.week_label = week_label
-        snapshot.base_date = base_date
-        snapshot.uploaded_at = datetime.datetime.utcnow()
-        db.flush()
+    prev_snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+
+    # 새 Snapshot 생성
+    new_snapshot = Snapshot(
+        week_label=week_label,
+        base_date=base_date,
+        uploaded_by=uploaded_by_id,
+        is_active=True,
+        uploaded_at=datetime.datetime.utcnow(),
+    )
+    db.add(new_snapshot)
+    db.flush()  # new_snapshot.id 확보
+
+    # 이전 Snapshot의 레코드를 새 Snapshot으로 통째로 복사 (SQL INSERT INTO ... SELECT)
+    if prev_snapshot:
+        if task_id:
+            _set_task(task_id, status="copying", message="이전 데이터 복사 중...")
+        db.execute(text(f"""
+            INSERT INTO {SCHEMA}.sales_records
+                (snapshot_id, team, channel, brand, code, month,
+                 y2024, y2025b, y2025, plan, actual,
+                 fw1, fw2, fw3, fw4, fw5)
+            SELECT
+                :new_id, team, channel, brand, code, month,
+                y2024, y2025b, y2025, plan, actual,
+                fw1, fw2, fw3, fw4, fw5
+            FROM {SCHEMA}.sales_records
+            WHERE snapshot_id = :old_id
+        """), {"new_id": new_snapshot.id, "old_id": prev_snapshot.id})
+        db.commit()
 
     _FW = ["fw1", "fw2", "fw3", "fw4", "fw5"]
     _VALUE_COLS = ["y2024", "y2025b", "y2025", "plan", "actual"] + _FW
@@ -131,7 +150,7 @@ def save_snapshot(
         rows = []
         for r in chunk:
             rows.append({
-                "snapshot_id": snapshot.id,
+                "snapshot_id": new_snapshot.id,
                 "team": r.get("team", ""),
                 "channel": r.get("channel", ""),
                 "brand": r.get("brand", "기타"),
@@ -158,6 +177,11 @@ def save_snapshot(
         if task_id:
             _set_task(task_id, progress=done, message=f"DB 저장 중 ({done:,} / {total:,}건)")
 
+    # 이전 Snapshot을 inactive로 전환 (삭제하지 않고 이력 보존)
+    if prev_snapshot:
+        prev_snapshot.is_active = False
+        db.commit()
+
     # 업로드 이력 기록
     db.add(UploadHistory(
         week_label=week_label,
@@ -170,19 +194,125 @@ def save_snapshot(
     return upserted
 
 
+def set_active_snapshot(db: Session, snapshot_id: int) -> dict:
+    """지정한 Snapshot을 active로 설정하고 나머지는 inactive로 전환."""
+    from ..models import Snapshot
+
+    target = db.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+    if not target:
+        return {"ok": False, "message": "스냅샷을 찾을 수 없습니다."}
+
+    db.query(Snapshot).filter(Snapshot.is_active == True).update({"is_active": False})
+    target.is_active = True
+    db.commit()
+    clear_html_cache()
+    return {"ok": True, "message": f"'{target.week_label}' 을 현재 기준으로 설정했습니다.", "week_label": target.week_label}
+
+
+def rollback_to_previous(db: Session) -> dict:
+    """현재 active 직전 Snapshot으로 되돌리기 (삭제 없이 active 전환만)."""
+    from ..models import Snapshot
+
+    curr = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not curr:
+        return {"ok": False, "message": "활성 데이터가 없습니다."}
+
+    prev = (
+        db.query(Snapshot)
+        .filter(Snapshot.uploaded_at < curr.uploaded_at)
+        .order_by(Snapshot.uploaded_at.desc())
+        .first()
+    )
+    if not prev:
+        return {"ok": False, "message": "되돌릴 이전 데이터가 없습니다."}
+
+    return set_active_snapshot(db, prev.id)
+
+
+def get_upload_diff(db: Session) -> Optional[Dict]:
+    """현재 active Snapshot vs 바로 이전 업로드 Snapshot 팀별 실적 비교.
+    이전 Snapshot 없으면 None 반환."""
+    from ..models import Snapshot, SalesRecord
+
+    curr = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if not curr:
+        return None
+
+    prev = (
+        db.query(Snapshot)
+        .filter(Snapshot.uploaded_at < curr.uploaded_at)
+        .order_by(Snapshot.uploaded_at.desc())
+        .first()
+    )
+    if not prev:
+        return None
+
+    def _team_totals(snap_id: int) -> dict:
+        rows = (
+            db.query(SalesRecord.team, func.sum(SalesRecord.actual).label("total"))
+            .filter(SalesRecord.snapshot_id == snap_id)
+            .group_by(SalesRecord.team)
+            .all()
+        )
+        return {r.team: float(r.total or 0) for r in rows}
+
+    prev_totals = _team_totals(prev.id)
+    curr_totals = _team_totals(curr.id)
+
+    # 신규로 actual 데이터가 생긴 월 찾기
+    def _active_months(snap_id: int) -> set:
+        return set(
+            r[0] for r in db.query(SalesRecord.month)
+            .filter(SalesRecord.snapshot_id == snap_id, SalesRecord.actual > 0)
+            .distinct().all()
+        )
+
+    new_months = sorted(_active_months(curr.id) - _active_months(prev.id))
+
+    all_teams = sorted(set(list(prev_totals.keys()) + list(curr_totals.keys())))
+    rows = [
+        {
+            "team": team,
+            "prev": prev_totals.get(team, 0.0),
+            "curr": curr_totals.get(team, 0.0),
+            "diff": curr_totals.get(team, 0.0) - prev_totals.get(team, 0.0),
+        }
+        for team in all_teams
+    ]
+
+    total_prev = sum(r["prev"] for r in rows)
+    total_curr = sum(r["curr"] for r in rows)
+
+    return {
+        "curr_label": curr.week_label,
+        "prev_label": prev.week_label,
+        "curr_base_date": curr.base_date,
+        "prev_base_date": prev.base_date,
+        "new_months": new_months,
+        "rows": rows,
+        "total_prev": total_prev,
+        "total_curr": total_curr,
+        "total_diff": total_curr - total_prev,
+    }
+
+
 # ─── DB 조회 ─────────────────────────────────────────────────────────────────
 
 def get_active_records(
     db: Session,
     allowed_teams: Optional[List[str]] = None,
     aggregated: bool = False,
+    snapshot_id: Optional[int] = None,
 ) -> List[Dict]:
-    """active 스냅샷 레코드 반환.
+    """스냅샷 레코드 반환. snapshot_id 미지정 시 active 스냅샷 사용.
     aggregated=True 이면 DB에서 (team, brand, month) 기준으로 GROUP BY SUM → 대용량 최적화.
     """
     from ..models import Snapshot, SalesRecord
 
-    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    if snapshot_id:
+        snapshot = db.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+    else:
+        snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
     if not snapshot:
         return []
 
@@ -264,28 +394,56 @@ def _get_aggregated_records(
     return result
 
 
-def get_active_snapshot_info(db: Session) -> Optional[Dict]:
-    """active 스냅샷 메타 정보 반환."""
+def get_active_snapshot_info(db: Session, snapshot_id: Optional[int] = None) -> Optional[Dict]:
+    """스냅샷 메타 정보 반환. snapshot_id 미지정 시 active 스냅샷 사용."""
+    import datetime
     from ..models import Snapshot
 
-    s = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+    _KST = datetime.timedelta(hours=9)
+    if snapshot_id:
+        s = db.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+    else:
+        s = db.query(Snapshot).filter(Snapshot.is_active == True).first()
     if not s:
         return None
     return {
         "id": s.id,
         "week_label": s.week_label,
         "base_date": s.base_date,
-        "uploaded_at": s.uploaded_at.strftime("%Y-%m-%d %H:%M") if s.uploaded_at else "",
+        "is_active": s.is_active,
+        "uploaded_at": (s.uploaded_at + _KST).strftime("%Y-%m-%d %H:%M") if s.uploaded_at else "",
     }
 
 
-def get_record_count(db: Session) -> int:
-    """active 스냅샷의 레코드 수 반환."""
+def get_all_snapshots(db: Session) -> List[Dict]:
+    """전체 스냅샷 목록 (최신순)."""
+    import datetime
+    from ..models import Snapshot
+    _KST = datetime.timedelta(hours=9)
+    rows = db.query(Snapshot).order_by(Snapshot.uploaded_at.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "week_label": s.week_label,
+            "base_date": s.base_date,
+            "is_active": s.is_active,
+            "uploaded_at": (s.uploaded_at + _KST).strftime("%Y-%m-%d %H:%M") if s.uploaded_at else "",
+        }
+        for s in rows
+    ]
+
+
+def get_record_count(db: Session, snapshot_id: Optional[int] = None) -> int:
+    """스냅샷 레코드 수 반환. snapshot_id 미지정 시 active 스냅샷 사용."""
     from ..models import Snapshot, SalesRecord
-    snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
-    if not snapshot:
-        return 0
-    return db.query(func.count(SalesRecord.id)).filter(SalesRecord.snapshot_id == snapshot.id).scalar() or 0
+    if snapshot_id:
+        snap_id = snapshot_id
+    else:
+        snapshot = db.query(Snapshot).filter(Snapshot.is_active == True).first()
+        if not snapshot:
+            return 0
+        snap_id = snapshot.id
+    return db.query(func.count(SalesRecord.id)).filter(SalesRecord.snapshot_id == snap_id).scalar() or 0
 
 
 # ─── HTML 생성 ───────────────────────────────────────────────────────────────

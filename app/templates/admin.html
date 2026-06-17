@@ -112,19 +112,74 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
         </div>
       </div>
 
-      <!-- 업로드 이력 -->
-      <div class="card p-4">
-        <h6 class="fw-bold mb-3">업로드 이력 (최근 10건)</h6>
-        <table class="table table-sm table-hover">
-          <thead><tr><th>#</th><th>레이블</th><th>기준일자</th><th>업로드 시각</th><th>처리 건수</th></tr></thead>
+      <!-- 변경사항 diff + 되돌리기 -->
+      {% if diff %}
+      <div class="card p-4 mb-4 border-primary border-opacity-50">
+        <div class="mb-3">
+          <h6 class="fw-bold mb-1">최근 업데이트 변경사항</h6>
+          <small class="text-muted">{{ diff.prev_label }}({{ diff.prev_base_date }}) → {{ diff.curr_label }}({{ diff.curr_base_date }})</small>
+        </div>
+
+        <table class="table table-sm table-hover mb-2">
+          <thead class="table-light">
+            <tr><th>팀</th><th class="text-end">이전 실적</th><th class="text-end">현재 실적</th><th class="text-end">증감</th></tr>
+          </thead>
           <tbody>
-          {% for s in snapshots %}
+          {% for r in diff.rows %}
           <tr>
-            <td>{{ s.id }}</td>
+            <td>{{ r.team }}</td>
+            <td class="text-end">{{ '{:,.0f}'.format(r.prev) }}</td>
+            <td class="text-end">{{ '{:,.0f}'.format(r.curr) }}</td>
+            <td class="text-end {% if r.diff > 0 %}text-success{% elif r.diff < 0 %}text-danger{% endif %}">
+              {% if r.diff > 0 %}+{% endif %}{{ '{:,.0f}'.format(r.diff) }}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+          <tfoot class="fw-bold">
+            <tr class="table-light">
+              <td>전사</td>
+              <td class="text-end">{{ '{:,.0f}'.format(diff.total_prev) }}</td>
+              <td class="text-end">{{ '{:,.0f}'.format(diff.total_curr) }}</td>
+              <td class="text-end {% if diff.total_diff > 0 %}text-success{% elif diff.total_diff < 0 %}text-danger{% endif %}">
+                {% if diff.total_diff > 0 %}+{% endif %}{{ '{:,.0f}'.format(diff.total_diff) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+        {% if diff.new_months %}
+        <small class="text-info">
+          📅 신규 월 추가: {{ diff.new_months | join('월, ') }}월
+        </small>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- 주차별 스냅샷 이력 -->
+      <div class="card p-4">
+        <h6 class="fw-bold mb-3">주차별 데이터 이력</h6>
+        <table class="table table-sm table-hover">
+          <thead><tr><th>레이블</th><th>기준일자</th><th>업로드 시각</th><th>상태</th><th></th></tr></thead>
+          <tbody>
+          {% for s in all_snapshots %}
+          <tr {% if s.is_active %}class="table-primary fw-semibold"{% endif %}>
             <td>{{ s.week_label }}</td>
             <td>{{ s.base_date }}</td>
-            <td>{{ s.uploaded_at.strftime('%Y-%m-%d %H:%M') if s.uploaded_at else '—' }}</td>
-            <td><span class="badge bg-primary">{{ '{:,}'.format(s.upserted_count) }}건</span></td>
+            <td>{{ s.uploaded_at }}</td>
+            <td>
+              {% if s.is_active %}
+              <span class="badge bg-primary">현재 기준</span>
+              {% else %}
+              <span class="badge bg-secondary">이전</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not s.is_active %}
+              <button class="btn btn-xs btn-outline-primary py-0 px-2"
+                      style="font-size:11px"
+                      onclick="setActive({{ s.id }}, '{{ s.week_label }}')">기준 설정</button>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
           <tr><td colspan="5" class="text-center text-muted">업로드 이력이 없습니다</td></tr>
@@ -695,6 +750,56 @@ async function deleteUser(userId) {
   });
   if ((await res.json()).ok) location.reload();
 }
+
+// ── 기준 설정 ─────────────────────────────────────────────────────────
+function setActive(snapId, label) {
+  const modal = new bootstrap.Modal(document.getElementById('set-active-modal'));
+  document.getElementById('set-active-label').textContent = label;
+  document.getElementById('set-active-snap-id').value = snapId;
+  modal.show();
+}
+
+async function executeSetActive() {
+  const btn = document.getElementById('set-active-confirm-btn');
+  const snapId = document.getElementById('set-active-snap-id').value;
+  btn.disabled = true;
+  btn.textContent = '처리 중...';
+  const res = await fetch('/admin/set-active', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ snapshot_id: parseInt(snapId) }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    location.reload();
+  } else {
+    alert(data.message || '설정 실패');
+    btn.disabled = false;
+    btn.textContent = '확인';
+  }
+}
 </script>
+
+<!-- 기준 설정 확인 모달 -->
+<div class="modal fade" id="set-active-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">현재 기준 변경</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1"><strong id="set-active-label"></strong> 을 현재 기준으로 설정할까요?</p>
+        <p class="text-muted mb-0 small">대시보드 기본 표시 데이터가 변경됩니다. 이력 데이터는 모두 그대로 유지됩니다.</p>
+        <input type="hidden" id="set-active-snap-id">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" id="set-active-confirm-btn" class="btn btn-primary btn-sm" onclick="executeSetActive()">확인</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -9,6 +9,7 @@ from ..models import User
 from ..data.parser import (
     get_active_records,
     get_active_snapshot_info,
+    get_all_snapshots,
     get_cached_html,
     get_record_count,
     _AGGREGATE_THRESHOLD,
@@ -69,7 +70,7 @@ _NAV_SCRIPT = f"""<script>
 </script>"""
 
 
-def _inject_nav(html: str, user: User, db=None, base_date: str = "") -> str:
+def _inject_nav(html: str, user: User, db=None, base_date: str = "", snapshots=None, current_snap_id: int = 0) -> str:
     from ..models import AppConfig
 
     app_title = "CMS Lab 매출 대시보드"
@@ -92,11 +93,26 @@ def _inject_nav(html: str, user: User, db=None, base_date: str = "") -> str:
         f'<span style="color:rgba(255,255,255,.6);font-size:12px">{base_date} 기준</span>'
         if base_date else ""
     )
+
+    # 주차 선택 드롭다운 (스냅샷 2개 이상일 때만 표시)
+    week_selector = ""
+    if snapshots and len(snapshots) > 1:
+        options = "".join(
+            f'<option value="{s["id"]}"{"  selected" if s["id"] == current_snap_id else ""}>{s["week_label"]}</option>'
+            for s in snapshots
+        )
+        week_selector = f"""<select id="__week-sel" onchange="(function(v){{var p=location.pathname;location.href=p+'?snap='+v;}})(this.value)"
+  style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);
+         border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;outline:none">
+  {options}
+</select>"""
+
     admin_link = '<a href="/admin">관리자</a>' if user.role == "admin" else ""
     nav = f"""{_NAV_STYLE}
 <div id="__cms-topnav">
   <span class="nav-title">{app_title}</span>
   <div class="nav-right">
+    {week_selector}
     {date_badge}
     <span class="nav-user">{user.name or user.email}</span>
     {admin_link}
@@ -117,41 +133,51 @@ def _inject_nav(html: str, user: User, db=None, base_date: str = "") -> str:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
+    snap: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
 
-    info = get_active_snapshot_info(db)
+    info = get_active_snapshot_info(db, snapshot_id=snap)
     if not info:
         return HTMLResponse(_NO_DATA_HTML)
 
-    use_agg = get_record_count(db) > _AGGREGATE_THRESHOLD
-    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg)
+    use_agg = get_record_count(db, snapshot_id=info["id"]) > _AGGREGATE_THRESHOLD
+    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg, snapshot_id=info["id"])
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 
+    all_snaps = get_all_snapshots(db)
     html = get_cached_html("dashboard", info["id"], current_user.allowed_teams, records, info["base_date"])
-    return HTMLResponse(_inject_nav(html, current_user, db, base_date=info["base_date"]))
+    return HTMLResponse(
+        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"]),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @router.get("/compare", response_class=HTMLResponse)
 async def compare(
+    snap: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     if not current_user:
         return RedirectResponse("/login", status_code=302)
 
-    info = get_active_snapshot_info(db)
+    info = get_active_snapshot_info(db, snapshot_id=snap)
     if not info:
         return HTMLResponse(_NO_DATA_HTML)
 
-    use_agg = get_record_count(db) > _AGGREGATE_THRESHOLD
-    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg)
+    use_agg = get_record_count(db, snapshot_id=info["id"]) > _AGGREGATE_THRESHOLD
+    records = get_active_records(db, current_user.allowed_teams, aggregated=use_agg, snapshot_id=info["id"])
     if not records:
         return HTMLResponse(_NO_DATA_HTML)
 
+    all_snaps = get_all_snapshots(db)
     html = get_cached_html("compare", info["id"], current_user.allowed_teams, records, info["base_date"])
-    return HTMLResponse(_inject_nav(html, current_user, db, base_date=info["base_date"]))
+    return HTMLResponse(
+        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"]),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )

@@ -12,15 +12,24 @@ from ..data.parser import (
     extract_records_from_excel,
     save_snapshot,
     get_active_snapshot_info,
+    get_all_snapshots,
+    set_active_snapshot,
     create_upload_task,
     get_upload_task,
     _set_task,
     prewarm_html_cache,
+    rollback_to_previous,
+    get_upload_diff,
 )
 
 router = APIRouter(prefix="/admin")
 _tpl_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
 templates = Jinja2Templates(directory=_tpl_dir)
+
+import datetime as _dt
+templates.env.filters["kst"] = lambda d: (
+    (d + _dt.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") if d else "—"
+)
 
 
 def get_teams(db: Session):
@@ -67,17 +76,46 @@ async def admin_page(
         "allowed_domain": get_config(db, "allowed_domain", "wonik.com"),
         "admin_contact": get_config(db, "admin_contact", ""),
     }
+    diff = get_upload_diff(db)
+    all_snapshots = get_all_snapshots(db)
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "user": current_user,
         "snapshots": snapshots,
+        "all_snapshots": all_snapshots,
         "users": users,
         "active_info": info,
         "teams": get_teams(db),
         "all_teams": all_teams,
         "config": config,
         "msg": msg,
+        "diff": diff,
     })
+
+
+# ─── 스냅샷 기준 설정 / 롤백 ──────────────────────────────────────────────────
+
+@router.post("/set-active")
+async def set_active(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    body = await request.json()
+    snapshot_id = body.get("snapshot_id")
+    if not snapshot_id:
+        raise HTTPException(400, "snapshot_id 가 필요합니다.")
+    result = set_active_snapshot(db, int(snapshot_id))
+    return JSONResponse(result)
+
+
+@router.post("/rollback")
+async def rollback(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = rollback_to_previous(db)
+    return JSONResponse(result)
 
 
 # ─── Excel 업로드 ─────────────────────────────────────────────────────────────
