@@ -1,7 +1,7 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -141,6 +141,16 @@ app.include_router(dashboard.router)
 app.include_router(admin.router)
 app.include_router(api.router)
 app.include_router(chat.router)
+
+@app.middleware("http")
+async def mcp_auth_middleware(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        secret = os.getenv("MCP_SECRET", "").strip()
+        if secret:
+            auth = request.headers.get("Authorization", "")
+            if auth != f"Bearer {secret}":
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return await call_next(request)
 
 app.mount("/mcp", get_mcp_app())
 
