@@ -250,9 +250,9 @@ def _inject_nav(html: str, user: User, db=None, base_date: str = "", snapshots=N
 </script>"""
 
     if "</body>" in html:
-        html = html.replace("</body>", _NAV_SCRIPT + hide_script + _CHAT_WIDGET + "</body>", 1)
+        html = html.replace("</body>", _NAV_SCRIPT + hide_script + "</body>", 1)
     else:
-        html = html + _NAV_SCRIPT + hide_script + _CHAT_WIDGET
+        html = html + _NAV_SCRIPT + hide_script
     return html
 
 
