@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..auth import get_current_user
 from ..models import User, Team
-from ..tab_registry import can_access_tab
+from ..tab_registry import can_access_tab, TABS
 from ..data.parser import (
     get_active_records,
     get_active_snapshot_info,
@@ -175,7 +175,7 @@ _NAV_SCRIPT = f"""<script>
 </script>"""
 
 
-def _inject_nav(html: str, user: User, db=None, base_date: str = "", snapshots=None, current_snap_id: int = 0) -> str:
+def _inject_nav(html: str, user: User, db=None, base_date: str = "", snapshots=None, current_snap_id: int = 0, hidden_routes: list = None) -> str:
     from ..models import AppConfig
 
     app_title = "CMS Lab 매출 대시보드"
@@ -229,10 +229,30 @@ def _inject_nav(html: str, user: User, db=None, base_date: str = "", snapshots=N
     else:
         html = nav + html
     # </body> 직전에 pane-table top 교정 스크립트 + 챗 위젯 삽입
+    # 접근 불가 탭 링크 숨기기
+    hide_script = ""
+    if hidden_routes:
+        routes_js = ", ".join(f'"{r}"' for r in hidden_routes)
+        hide_script = f"""<script>
+(function(){{
+  var hidden = [{routes_js}];
+  function hideTabLinks() {{
+    hidden.forEach(function(route) {{
+      document.querySelectorAll('a[href="' + route + '"]').forEach(function(a) {{
+        var el = a.closest('li,td,th,div.tab,span') || a;
+        el.style.display = 'none';
+      }});
+    }});
+  }}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hideTabLinks);
+  else hideTabLinks();
+}})();
+</script>"""
+
     if "</body>" in html:
-        html = html.replace("</body>", _NAV_SCRIPT + _CHAT_WIDGET + "</body>", 1)
+        html = html.replace("</body>", _NAV_SCRIPT + hide_script + _CHAT_WIDGET + "</body>", 1)
     else:
-        html = html + _NAV_SCRIPT + _CHAT_WIDGET
+        html = html + _NAV_SCRIPT + hide_script + _CHAT_WIDGET
     return html
 
 
@@ -258,9 +278,10 @@ async def dashboard(
         return HTMLResponse(_NO_DATA_HTML)
 
     all_snaps = get_all_snapshots(db)
+    hidden = [t["route"] for t in TABS if not can_access_tab(current_user, t["id"], group_team)]
     html = get_cached_html("dashboard", info["id"], current_user.allowed_teams, records, info["base_date"])
     return HTMLResponse(
-        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"]),
+        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"], hidden_routes=hidden),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
@@ -287,8 +308,9 @@ async def compare(
         return HTMLResponse(_NO_DATA_HTML)
 
     all_snaps = get_all_snapshots(db)
+    hidden = [t["route"] for t in TABS if not can_access_tab(current_user, t["id"], group_team)]
     html = get_cached_html("compare", info["id"], current_user.allowed_teams, records, info["base_date"])
     return HTMLResponse(
-        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"]),
+        _inject_nav(html, current_user, db, base_date=info["base_date"], snapshots=all_snaps, current_snap_id=info["id"], hidden_routes=hidden),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
