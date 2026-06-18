@@ -485,7 +485,13 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f5
               </select>
               {% endif %}
             </td>
-            <td style="font-size:12px">{{ ', '.join(u.allowed_teams) if u.allowed_teams else '전체' }}</td>
+            <td style="font-size:12px">
+              {{ ', '.join(u.allowed_teams) if u.allowed_teams else '전체' }}
+              {% if u.id != user.id %}
+              <button class="btn btn-outline-secondary py-0 px-1 ms-1" style="font-size:10px"
+                onclick='openTeamPermModal({{ u.id }}, {{ u.allowed_teams | tojson if u.allowed_teams else "null" }})'>수정</button>
+              {% endif %}
+            </td>
             <td>
               {% if u.id != user.id %}
               <select class="form-select form-select-sm py-0" style="min-width:90px;font-size:12px"
@@ -1018,6 +1024,40 @@ async function clearTabPerms() {
 }
 
 // ── 그룹별 탭 권한 (인라인 테이블) ────────────────────────────────────
+const _ALL_TEAMS_LIST = {{ teams | tojson }};
+
+function openTeamPermModal(userId, currentTeams) {
+  document.getElementById('team-perm-user-id').value = userId;
+  _ALL_TEAMS_LIST.forEach(t => {
+    const cb = document.getElementById('teampermcb-' + t);
+    if (cb) cb.checked = currentTeams ? currentTeams.includes(t) : false;
+  });
+  new bootstrap.Modal(document.getElementById('team-perm-modal')).show();
+}
+
+async function clearTeamPerms() {
+  const userId = document.getElementById('team-perm-user-id').value;
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: parseInt(userId), allowed_teams: null }),
+  });
+  if ((await res.json()).ok) location.reload();
+  else alert('저장 실패');
+}
+
+async function saveTeamPerms() {
+  const userId = document.getElementById('team-perm-user-id').value;
+  const selected = _ALL_TEAMS_LIST.filter(t => document.getElementById('teampermcb-' + t)?.checked);
+  const res = await fetch('/admin/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'update', id: parseInt(userId), allowed_teams: selected.length ? selected : null }),
+  });
+  if ((await res.json()).ok) location.reload();
+  else alert('저장 실패');
+}
+
 async function saveGroupTabs(teamId) {
   const selected = _ALL_TABS.map(t => t.id).filter(id => {
     const cb = document.getElementById('gtab-' + teamId + '-' + id);
@@ -1257,6 +1297,37 @@ async function regenApiKey() {
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
         <button type="button" class="btn btn-primary btn-sm" onclick="saveTeamTabPerms()">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 소속팀 열람 권한 수정 모달 -->
+<div class="modal fade" id="team-perm-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">소속팀 열람 권한 수정</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          아무것도 선택하지 않으면 <strong>전체 팀 데이터</strong>를 볼 수 있습니다.<br>
+          특정 팀만 선택하면 그 팀의 데이터만 표시됩니다.
+        </p>
+        <input type="hidden" id="team-perm-user-id">
+        {% for t in teams %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="teampermcb-{{ t }}" value="{{ t }}">
+          <label class="form-check-label" for="teampermcb-{{ t }}" style="font-size:13px">{{ t }}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm me-auto"
+          onclick="clearTeamPerms()">전체 열람으로 초기화</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveTeamPerms()">저장</button>
       </div>
     </div>
   </div>
