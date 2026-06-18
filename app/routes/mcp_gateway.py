@@ -289,4 +289,4 @@ async def naver_get_insight() -> str:
 
 def get_mcp_app():
     """main.py에서 app.mount('/mcp', get_mcp_app()) 로 사용."""
-    return mcp.get_asgi_app()
+    return mcp.streamable_http_app()
