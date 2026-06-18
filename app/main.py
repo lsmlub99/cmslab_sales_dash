@@ -8,6 +8,7 @@ load_dotenv()
 
 from .database import Base, engine
 from .routes import auth_routes, dashboard, admin, api, chat
+from .routes.mcp_gateway import get_mcp_app
 from .models import User
 from .auth import hash_password
 from .scheduler import start_scheduler
@@ -140,6 +141,8 @@ app.include_router(dashboard.router)
 app.include_router(admin.router)
 app.include_router(api.router)
 app.include_router(chat.router)
+
+app.mount("/mcp", get_mcp_app())
 
 
 @app.get("/")
